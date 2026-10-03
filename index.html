@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tiempos de trabajo</title>
+  <link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+  <header class="barra">
+    <h1>Tiempos de trabajo</h1>
+    <div class="estado">
+      <span id="persona" class="persona" hidden></span>
+      <span id="red" class="pastilla" role="status">sin dato de red</span>
+      <span id="pendientes" class="pastilla" role="status">pendientes por enviar: 0</span>
+      <button id="salir" type="button" class="chico" hidden>Salir</button>
+    </div>
+  </header>
+
+  <div id="alerta-almacen" class="alerta" role="alert" hidden>
+    Este navegador no deja guardar datos en el equipo. Lo que anotes se pierde si cierras la pestaña: déjala abierta hasta que diga «pendientes por enviar: 0».
+  </div>
+  <div id="alerta-listas" class="alerta" role="alert" hidden>
+    Falta la lista de colegios (el archivo listas.js). Avísale a Bryan o a Manuela.
+  </div>
+
+  <main>
+    <!-- Primera vez: aviso, alias y código -->
+    <section id="pantalla-entrada" hidden>
+      <h2>Primera vez en este equipo</h2>
+      <div class="aviso">
+        <p><strong>Tus tiempos los ven Manuela y Bryan para medir cuántas fotos salen por hora.</strong></p>
+        <p>Se guarda solo esto: tu alias, el colegio y el grupo, el paso, los minutos, las fotos terminadas y la nota corta. Lo que anotas es lo que tú declaras. Si quieres que borren tus datos, díselo a Manuela.</p>
+        <p>No escribas nombres de estudiantes en ninguna parte.</p>
+      </div>
+      <form id="form-entrada" autocomplete="off" novalidate>
+        <label for="alias">Tu alias</label>
+        <input id="alias" type="text" maxlength="24" autocapitalize="none" spellcheck="false" required>
+        <label for="codigo">Tu código (10 letras y números, te lo dio Manuela)</label>
+        <input id="codigo" type="password" maxlength="20" autocapitalize="characters" spellcheck="false" required>
+        <label class="casilla"><input id="acepto" type="checkbox"> Leí el aviso y lo acepto.</label>
+        <p id="error-entrada" class="error" role="alert" hidden></p>
+        <button id="entrar" type="submit" class="grande">Entrar</button>
+      </form>
+    </section>
+
+    <!-- Trabajo diario -->
+    <section id="pantalla-trabajo" hidden>
+      <form id="formulario" autocomplete="off" novalidate>
+        <fieldset id="bloque-colegio">
+          <legend>1. ¿En qué colegio?</legend>
+          <div class="fila">
+            <div class="campo"><label for="colegio">Colegio</label><select id="colegio"></select></div>
+            <div class="campo"><label for="grupo">Grupo</label><select id="grupo"></select></div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>2. ¿Qué paso hiciste?</legend>
+          <div id="pasos" class="pasos" role="radiogroup" aria-label="Paso"></div>
+        </fieldset>
+
+        <fieldset id="bloque-motivo">
+          <legend>3. ¿Por qué lo hiciste a mano? <span class="opcional">(opcional)</span></legend>
+          <select id="motivo"></select>
+          <p class="ayuda">Si la IA lo frenó, escoge el patrón. Si no sabes o no aplica, déjalo en blanco.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>4. ¿Cuánto te demoraste?</legend>
+          <div class="modo">
+            <button type="button" id="modo-cronometro" class="pestana activa" aria-pressed="true">Cronómetro</button>
+            <button type="button" id="modo-manual" class="pestana" aria-pressed="false">Minutos a mano</button>
+          </div>
+          <div id="panel-cronometro">
+            <div id="reloj" class="reloj" role="timer" aria-live="off">00:00:00</div>
+            <div class="botones">
+              <button type="button" id="crono-iniciar" class="grande">Iniciar</button>
+              <button type="button" id="crono-pausar" class="grande" disabled>Pausar</button>
+              <button type="button" id="crono-terminar" class="grande" disabled>Terminar</button>
+            </div>
+            <p id="crono-resumen" class="ayuda" aria-live="polite"></p>
+          </div>
+          <div id="panel-manual" hidden>
+            <div class="fila">
+              <div class="campo"><label for="minutos">Minutos trabajados (1 a 720)</label><input id="minutos" type="number" inputmode="numeric" min="1" max="720" step="1"></div>
+              <div class="campo"><label for="dia">Día</label><input id="dia" type="date"></div>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset id="bloque-fotos">
+          <legend>5. ¿Cuántas fotos terminaste?</legend>
+          <div class="contador">
+            <button type="button" id="fotos-menos" class="grande cuadrado" aria-label="Una foto menos">−</button>
+            <input id="fotos" type="number" inputmode="numeric" min="0" max="300" step="1" value="0" aria-label="Fotos terminadas">
+            <button type="button" id="fotos-mas" class="grande cuadrado" aria-label="Una foto más">+</button>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>6. Nota corta <span class="opcional">(opcional)</span></legend>
+          <input id="nota" type="text" maxlength="120" spellcheck="true">
+          <p class="ayuda"><strong>No escribas nombres de estudiantes.</strong> <span id="nota-cuenta">0 / 120</span></p>
+        </fieldset>
+
+        <p id="error-registro" class="error" role="alert" hidden></p>
+        <p id="ok-registro" class="ok" role="status" hidden></p>
+        <button id="guardar" type="submit" class="grande principal">Guardar este registro</button>
+      </form>
+
+      <section class="tarjeta" aria-labelledby="t-envio">
+        <h2 id="t-envio">Envío</h2>
+        <p id="estado-envio" role="status">Todo lo anotado está enviado.</p>
+        <button id="enviar-ahora" type="button" class="grande">Enviar ahora</button>
+      </section>
+
+      <section id="tarjeta-rechazados" class="tarjeta" hidden aria-labelledby="t-rech">
+        <h2 id="t-rech">Registros que no se pudieron guardar</h2>
+        <p class="ayuda">No se van a reenviar solos. Vuelve a anotarlos corrigiendo lo que dice cada uno, y descarta estos.</p>
+        <ul id="lista-rechazados" class="lista"></ul>
+      </section>
+
+      <section class="tarjeta" aria-labelledby="t-hoy">
+        <h2 id="t-hoy">Lo que anotaste hoy desde este equipo</h2>
+        <p id="resumen-hoy">Todavía nada.</p>
+      </section>
+    </section>
+  </main>
+
+  <footer class="pie">
+    <p>Tiempos en hora de Bogotá. Lo que se anota es lo que cada persona declara.<span id="version-listas"></span></p>
+  </footer>
+
+  <script src="config.js"></script>
+  <script src="listas.js"></script>
+  <script src="nucleo.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

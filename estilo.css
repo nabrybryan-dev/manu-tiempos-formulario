@@ -1,0 +1,158 @@
+/* Formulario de tiempos. Botones grandes para usar con ratón en un PC. Sin fuentes ni imágenes externas. */
+:root {
+  --fondo: #f4f1ea;
+  --papel: #ffffff;
+  --tinta: #1f2430;
+  --suave: #5b6272;
+  --linea: #c9c3b6;
+  --marca: #1d5c63;
+  --marca-oscura: #134349;
+  --aviso: #8a5a00;
+  --aviso-fondo: #fff1d1;
+  --mala: #9b1c1c;
+  --mala-fondo: #fde4e4;
+  --buena: #1e6b3a;
+  --buena-fondo: #def3e5;
+}
+
+* { box-sizing: border-box; }
+
+html { font-size: 18px; }
+
+body {
+  margin: 0;
+  background: var(--fondo);
+  color: var(--tinta);
+  font-family: system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+  line-height: 1.4;
+}
+
+.barra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 0.6rem 1rem;
+  background: var(--marca-oscura);
+  color: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+.barra h1 { margin: 0; font-size: 1.2rem; }
+.estado { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.persona { font-weight: 700; padding: 0.15rem 0.6rem; background: #ffffff22; border-radius: 99px; }
+
+.pastilla {
+  display: inline-block;
+  padding: 0.15rem 0.7rem;
+  border-radius: 99px;
+  font-size: 0.85rem;
+  background: #ffffff22;
+  color: #fff;
+}
+.pastilla.buena { background: var(--buena-fondo); color: var(--buena); }
+.pastilla.mala { background: var(--mala-fondo); color: var(--mala); }
+.pastilla.aviso { background: var(--aviso-fondo); color: var(--aviso); font-weight: 700; }
+
+main { max-width: 52rem; margin: 0 auto; padding: 1rem; }
+
+h2 { font-size: 1.15rem; margin: 0 0 0.5rem; }
+
+fieldset {
+  border: 1px solid var(--linea);
+  border-radius: 10px;
+  background: var(--papel);
+  margin: 0 0 1rem;
+  padding: 0.8rem 1rem 1rem;
+}
+legend { font-weight: 700; padding: 0 0.4rem; }
+.opcional { font-weight: 400; color: var(--suave); }
+
+label { display: block; margin: 0.6rem 0 0.2rem; font-weight: 600; }
+.casilla { display: flex; align-items: center; gap: 0.6rem; font-weight: 400; margin: 1rem 0; }
+.casilla input { width: 1.6rem; height: 1.6rem; }
+
+input[type="text"], input[type="password"], input[type="number"], input[type="date"], select {
+  width: 100%;
+  min-height: 3rem;
+  font: inherit;
+  padding: 0.4rem 0.7rem;
+  border: 2px solid var(--linea);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--tinta);
+}
+input:focus, select:focus, button:focus-visible {
+  outline: 3px solid #f2a900;
+  outline-offset: 2px;
+}
+
+.fila { display: flex; flex-wrap: wrap; gap: 0.8rem; }
+.campo { flex: 1 1 14rem; }
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border: 2px solid var(--marca);
+  background: #fff;
+  color: var(--marca-oscura);
+  border-radius: 10px;
+  padding: 0.5rem 1rem;
+}
+button:hover:not(:disabled) { background: #e6f0f0; }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button.grande { min-height: 3.6rem; font-size: 1.1rem; font-weight: 700; padding: 0.6rem 1.4rem; }
+button.chico { min-height: 2.2rem; font-size: 0.85rem; padding: 0.2rem 0.8rem; }
+button.cuadrado { width: 4rem; padding: 0; font-size: 1.8rem; }
+button.principal { width: 100%; background: var(--marca); color: #fff; font-size: 1.25rem; min-height: 4.2rem; }
+button.principal:hover:not(:disabled) { background: var(--marca-oscura); }
+
+.pasos { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 0.6rem; }
+button.paso { min-height: 3.6rem; font-size: 1.05rem; font-weight: 600; text-align: center; }
+button.paso.activo { background: var(--marca); color: #fff; border-color: var(--marca-oscura); }
+button.paso.otra { border-style: dashed; }
+button.paso.otra.activo { background: var(--aviso); border-color: var(--aviso); }
+
+.modo { display: flex; gap: 0.5rem; margin-bottom: 0.8rem; }
+button.pestana { flex: 1; min-height: 3rem; font-weight: 600; }
+button.pestana.activa { background: var(--marca); color: #fff; }
+
+.reloj {
+  font-variant-numeric: tabular-nums;
+  font-size: 4rem;
+  font-weight: 800;
+  text-align: center;
+  padding: 0.4rem 0;
+  letter-spacing: 0.04em;
+}
+.reloj.corriendo { color: var(--buena); }
+.reloj.pausado { color: var(--aviso); }
+.reloj.terminado { color: var(--marca-oscura); }
+
+.botones { display: flex; flex-wrap: wrap; gap: 0.6rem; justify-content: center; }
+.botones button { flex: 1 1 10rem; }
+
+.contador { display: flex; gap: 0.6rem; align-items: center; }
+.contador input { text-align: center; font-size: 2rem; font-weight: 700; min-height: 4rem; max-width: 9rem; }
+
+.aviso { background: #eef6f6; border-left: 6px solid var(--marca); padding: 0.6rem 1rem; border-radius: 6px; }
+.aviso p { margin: 0.4rem 0; }
+.alerta { background: var(--aviso-fondo); color: var(--aviso); padding: 0.6rem 1rem; font-weight: 600; border-bottom: 2px solid var(--aviso); }
+.error { background: var(--mala-fondo); color: var(--mala); padding: 0.6rem 1rem; border-radius: 8px; font-weight: 600; }
+.ok { background: var(--buena-fondo); color: var(--buena); padding: 0.6rem 1rem; border-radius: 8px; font-weight: 600; }
+.ayuda { color: var(--suave); font-size: 0.9rem; margin: 0.4rem 0 0; }
+
+.tarjeta { background: var(--papel); border: 1px solid var(--linea); border-radius: 10px; padding: 0.8rem 1rem; margin: 1rem 0; }
+.lista { list-style: none; margin: 0; padding: 0; }
+.lista li { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: space-between; align-items: center; padding: 0.4rem 0; border-top: 1px solid var(--linea); }
+
+.pie { text-align: center; color: var(--suave); font-size: 0.85rem; padding: 1rem; }
+
+[hidden] { display: none !important; }
+
+@media (max-width: 40rem) {
+  html { font-size: 16px; }
+  .reloj { font-size: 3rem; }
+}
