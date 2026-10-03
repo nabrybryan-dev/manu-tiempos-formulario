@@ -411,7 +411,7 @@
   function poblarGrupos() {
     var sel = $('grupo');
     sel.innerHTML = '';
-    sel.appendChild(opcion('', 'Escoge el grupo'));
+    sel.appendChild(opcion('', 'Escoge el grado o grupo'));
     var cs = (listas && listas.colegios) || [];
     var c = cs.filter(function (x) { return x.codigo === $('colegio').value; })[0];
     ((c && c.grupos) || []).forEach(function (g) { sel.appendChild(opcion(g, g)); });
@@ -448,7 +448,7 @@
   function escogerPaso(p) {
     var colegio = panelModo === 'paso' && trabajo.seleccion ? trabajo.seleccion.colegio : $('colegio').value;
     var grupo = panelModo === 'paso' && trabajo.seleccion ? trabajo.seleccion.grupo : $('grupo').value;
-    if (!colegio || !grupo) { aviso('jornada-error', 'Escoge primero el colegio y el grupo.'); return; }
+    if (!colegio || !grupo) { aviso('jornada-error', 'Escoge primero el colegio y el grado o grupo.'); return; }
     aviso('jornada-error', '');
     aplicarSeleccion({ colegio: colegio, grupo: grupo, paso: p });
   }
@@ -534,11 +534,13 @@
 
   function dibujarTrabajo() {
     var s = trabajo.seleccion;
+    // Sin nada escogido, las tres preguntas (colegio, grado y paso) quedan a la vista: nadie tiene que adivinar qué botón las abre.
+    if (!s && panelModo === null && listas && listas.colegios && listas.colegios.length) abrirPanel('todo');
     var ponerNombre = function (cod) {
       var c = ((listas && listas.colegios) || []).filter(function (x) { return x.codigo === cod; })[0];
       return c && c.nombre ? c.nombre : cod;
     };
-    $('trabajo-seleccion').textContent = s ? ponerNombre(s.colegio) + ' · ' + s.grupo + ' · ' + (N.ETIQUETAS_PASO[s.paso] || s.paso) : 'Escoge qué vas a trabajar.';
+    $('trabajo-seleccion').textContent = s ? ponerNombre(s.colegio) + ' · ' + s.grupo + ' · ' + (N.ETIQUETAS_PASO[s.paso] || s.paso) : 'Escoge qué vas a trabajar: colegio, grado y paso.';
     var v = vista();
     var puede = v.estado === 'corriendo' && !v.vencida;
     $('siguiente-foto').disabled = !puede;
@@ -552,7 +554,7 @@
     if (v.estado === 'sin_iniciar') ayuda = 'Primero inicia la jornada.';
     else if (v.estado === 'cerrada') ayuda = 'La jornada de hoy ya se cerró.';
     else if (v.estado === 'en_pausa') ayuda = 'Estás en pausa: el cronómetro de la foto espera. Toca el botón para volver.';
-    else if (!s) ayuda = 'Escoge colegio, grupo y paso (o una tarea de tu plan) y toca «Siguiente foto».';
+    else if (!s) ayuda = 'Escoge arriba el colegio, el grado y el paso (o una tarea de tu plan) y toca «Siguiente foto».';
     else if (!trabajo.foto) ayuda = 'Toca «Siguiente foto» cuando empieces la primera.';
     else ayuda = 'Cada toque cierra la foto anterior con sus minutos y abre la siguiente. Si vas a hacer otra cosa, anota una pausa.';
     $('foto-ayuda').textContent = ayuda;
