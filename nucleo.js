@@ -1,4 +1,4 @@
-/* Núcleo del formulario de tiempos: todo lo que se puede probar sin pantalla (validación, hora de Bogotá, cronómetro,
+/* Núcleo del formulario de tiempos: todo lo que se puede probar sin pantalla (validación, hora de Bogotá,
    cola local y envío con reintento). El navegador lo carga como script y define ManuNucleo; node lo carga con require.
    Sin librerías externas. Evita ?. y ?? a propósito, por si algún equipo tiene un navegador viejo.
    Las reglas repiten las de esquema.sql y supabase/functions/_shared/reglas.ts; pruebas/contrato.test.mjs las compara. */
@@ -174,65 +174,9 @@
   }
 
   // ------------------------------------------------------------------------------------------------------------------
-  // Cronómetro: una máquina de estados pura. El reloj entra como argumento (milisegundos desde 1970).
-  //   quieto -> corriendo <-> pausado -> terminado -> (guardar) -> quieto
+  // Formatos de reloj. (El cronómetro que la persona podía pausar se quitó en la versión 2: la jornada y el cronómetro por foto
+  // viven en jornada.js y ninguno se puede parar desde el formulario.)
   // ------------------------------------------------------------------------------------------------------------------
-  function cronometroNuevo() {
-    return { estado: 'quieto', acumuladoMs: 0, desdeMs: null, inicioMs: null, resultado: null };
-  }
-
-  function copia(c) { return JSON.parse(JSON.stringify(c)); }
-
-  function iniciar(c, ahora) {
-    if (c.estado !== 'quieto') return c;
-    return { estado: 'corriendo', acumuladoMs: 0, desdeMs: ahora, inicioMs: ahora, resultado: null };
-  }
-
-  function pausar(c, ahora) {
-    if (c.estado !== 'corriendo') return c;
-    var n = copia(c);
-    n.acumuladoMs += Math.max(0, ahora - c.desdeMs);
-    n.desdeMs = null;
-    n.estado = 'pausado';
-    return n;
-  }
-
-  function reanudar(c, ahora) {
-    if (c.estado !== 'pausado') return c;
-    var n = copia(c);
-    n.desdeMs = ahora;
-    n.estado = 'corriendo';
-    return n;
-  }
-
-  function transcurridoMs(c, ahora) {
-    if (c.estado === 'corriendo') return c.acumuladoMs + Math.max(0, ahora - c.desdeMs);
-    return c.acumuladoMs;
-  }
-
-  // Termina y calcula lo que se va a guardar. Menos de medio minuto no se guarda; más de 12 h, tampoco (se escribe a mano).
-  function terminar(c, ahora) {
-    if (c.estado !== 'corriendo' && c.estado !== 'pausado') return c;
-    var total = transcurridoMs(c, ahora);
-    var n = copia(c);
-    n.acumuladoMs = total;
-    n.desdeMs = null;
-    n.estado = 'terminado';
-    var minutos = Math.round(total / 60000);
-    var ini = bogota(c.inicioMs);
-    var fin = bogota(ahora);
-    var mismoDia = ini.dia === fin.dia;
-    var conHoras = mismoDia && aMinutos(fin.hora) > aMinutos(ini.hora);
-    n.resultado = {
-      minutos: minutos,
-      dia: ini.dia,
-      inicio: conHoras ? ini.hora : null,
-      fin: conHoras ? fin.hora : null,
-      problema: minutos < LIMITES.minutosMin ? 'muy_corto' : (minutos > LIMITES.minutosMax ? 'muy_largo' : null)
-    };
-    return n;
-  }
-
   function formatoReloj(ms) {
     var s = Math.floor(Math.max(0, ms) / 1000);
     return dos(Math.floor(s / 3600)) + ':' + dos(Math.floor((s % 3600) / 60)) + ':' + dos(s % 60);
@@ -291,7 +235,7 @@
 
   var CLAVES = {
     cola: 'manu.cola.v1', rechazados: 'manu.rechazados.v1', sesion: 'manu.sesion.v1',
-    cronometro: 'manu.cronometro.v1', ultimo: 'manu.ultimo.v1', historial: 'manu.historial.v1'
+    ultimo: 'manu.ultimo.v1', historial: 'manu.historial.v1'
   };
 
   // La cola siempre lee del almacén antes de cambiar algo (así dos pestañas abiertas no se pisan con copias viejas).
@@ -435,8 +379,7 @@
     LIMITES: LIMITES, FORMATOS: FORMATOS, MENSAJES: MENSAJES, CAMPOS_REGISTRO: CAMPOS_REGISTRO, CLAVES: CLAVES,
     mensajeDe: mensajeDe, bogota: bogota, bogotaIso: bogotaIso, validarRegistro: validarRegistro,
     nuevoIdCliente: nuevoIdCliente, aleatorioDelNavegador: aleatorioDelNavegador,
-    cronometroNuevo: cronometroNuevo, iniciar: iniciar, pausar: pausar, reanudar: reanudar, terminar: terminar,
-    transcurridoMs: transcurridoMs, formatoReloj: formatoReloj, formatoDuracion: formatoDuracion,
+    formatoReloj: formatoReloj, formatoDuracion: formatoDuracion,
     crearAlmacen: crearAlmacen, leerJson: leerJson, escribirJson: escribirJson, crearCola: crearCola,
     agregarHistorial: agregarHistorial, marcarEnviadosEnHistorial: marcarEnviadosEnHistorial, resumenDelDia: resumenDelDia,
     esperaReintento: esperaReintento, interpretarRespuesta: interpretarRespuesta, enviarPendientes: enviarPendientes

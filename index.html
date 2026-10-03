@@ -30,7 +30,7 @@
       <h2>Primera vez en este equipo</h2>
       <div class="aviso">
         <p><strong>Tus tiempos los ven Manuela y Bryan para medir cuántas fotos salen por hora.</strong></p>
-        <p>Se guarda solo esto: tu alias, el colegio y el grupo, el paso, los minutos, las fotos terminadas y la nota corta. Lo que anotas es lo que tú declaras. Si quieres que borren tus datos, díselo a Manuela.</p>
+        <p>Se registra tu jornada (la hora en que la inicias y la hora en que la cierras, las dos según el reloj del servidor), tus pausas con su motivo (almuerzo, baño u otra actividad) y el tiempo de almuerzo y, por cada bloque de fotos, el colegio, el grupo, el paso, los minutos y las fotos terminadas. La jornada no se puede pausar ni borrar. La única salida que detiene el reloj es «Salir a almorzar», una sola vez al día, con la hora del servidor al salir y al volver; ese tiempo no cuenta en tus 8 horas y queda guardado aparte. Las demás pausas (baño, otra actividad) se anotan y el reloj sigue. Si sales a almorzar y no vuelves, el sistema cierra la jornada. Al cerrar la jornada al final del día no se vuelve a abrir. Lo que anotas es lo que tú declaras. Si quieres que borren tus datos, díselo a Manuela.</p>
         <p>No escribas nombres de estudiantes en ninguna parte.</p>
       </div>
       <form id="form-entrada" autocomplete="off" novalidate>
@@ -46,68 +46,99 @@
 
     <!-- Trabajo diario -->
     <section id="pantalla-trabajo" hidden>
-      <form id="formulario" autocomplete="off" novalidate>
-        <fieldset id="bloque-colegio">
-          <legend>1. ¿En qué colegio?</legend>
-          <div class="fila">
-            <div class="campo"><label for="colegio">Colegio</label><select id="colegio"></select></div>
-            <div class="campo"><label for="grupo">Grupo</label><select id="grupo"></select></div>
-          </div>
-        </fieldset>
 
-        <fieldset>
-          <legend>2. ¿Qué paso hiciste?</legend>
-          <div id="pasos" class="pasos" role="radiogroup" aria-label="Paso"></div>
-        </fieldset>
+      <!-- 1. La jornada: la hora la pone el servidor y no se puede parar -->
+      <section id="tarjeta-jornada" class="tarjeta jornada" aria-labelledby="t-jornada">
+        <h2 id="t-jornada">Tu jornada</h2>
 
-        <fieldset id="bloque-motivo">
-          <legend>3. ¿Por qué lo hiciste a mano? <span class="opcional">(opcional)</span></legend>
-          <select id="motivo"></select>
-          <p class="ayuda">Si la IA lo frenó, escoge el patrón. Si no sabes o no aplica, déjalo en blanco.</p>
-        </fieldset>
+        <div id="jornada-sin-iniciar" hidden>
+          <p>Todavía no empieza. Al tocar el botón se guarda la hora del servidor (no la de este equipo) y el reloj corre hasta que la cierres.</p>
+          <button id="jornada-iniciar" type="button" class="grande principal">Iniciar jornada</button>
+        </div>
 
-        <fieldset>
-          <legend>4. ¿Cuánto te demoraste?</legend>
-          <div class="modo">
-            <button type="button" id="modo-cronometro" class="pestana activa" aria-pressed="true">Cronómetro</button>
-            <button type="button" id="modo-manual" class="pestana" aria-pressed="false">Minutos a mano</button>
+        <div id="jornada-activa" hidden>
+          <div id="jornada-reloj" class="reloj corriendo" role="timer" aria-live="off">00:00:00</div>
+          <div class="barra-meta" aria-hidden="true"><div id="jornada-barra" class="barra-meta-relleno"></div></div>
+          <p id="jornada-meta" class="ayuda" role="status"></p>
+          <p id="jornada-detalle" class="ayuda"></p>
+
+          <div id="jornada-pausas" class="botones-pausa" role="group" aria-label="Anotar una pausa">
+            <span class="etiqueta-pausa">Almuerzo (una sola vez al día; detiene el reloj y no cuenta en tus horas) y pausas que no detienen el reloj:</span>
+            <button type="button" class="pausa" data-pausa="almuerzo">Salir a almorzar</button>
+            <button type="button" class="pausa" data-pausa="bano">Baño</button>
+            <button type="button" class="pausa" data-pausa="otra_actividad">Otra actividad</button>
           </div>
-          <div id="panel-cronometro">
-            <div id="reloj" class="reloj" role="timer" aria-live="off">00:00:00</div>
-            <div class="botones">
-              <button type="button" id="crono-iniciar" class="grande">Iniciar</button>
-              <button type="button" id="crono-pausar" class="grande" disabled>Pausar</button>
-              <button type="button" id="crono-terminar" class="grande" disabled>Terminar</button>
-            </div>
-            <p id="crono-resumen" class="ayuda" aria-live="polite"></p>
+
+          <div id="jornada-en-pausa" class="en-pausa" role="status" hidden>
+            <p><strong id="pausa-texto"></strong></p>
+            <button id="pausa-volver" type="button" class="grande principal">Volver al trabajo</button>
           </div>
-          <div id="panel-manual" hidden>
+
+          <button id="jornada-cerrar" type="button" class="chico cerrar">Cerrar jornada</button>
+          <p id="jornada-cerrar-ayuda" class="ayuda" hidden></p>
+        </div>
+
+        <div id="jornada-cerrada" hidden>
+          <p id="jornada-cerrada-texto" role="status"></p>
+        </div>
+
+        <p id="jornada-error" class="error" role="alert" hidden></p>
+      </section>
+
+      <!-- 2. El plan del día: lo calcula el centro y llega solo con alias y código -->
+      <section id="tarjeta-plan" class="tarjeta" aria-labelledby="t-plan">
+        <h2 id="t-plan">Tu plan de hoy</h2>
+        <p id="plan-saludo"></p>
+        <p id="plan-resumen" class="gran-linea"></p>
+        <p id="plan-aviso" class="alerta-suave" hidden></p>
+        <p id="plan-vacio" class="ayuda" hidden>Hoy no hay un plan para ti. Pídele a Manuela o a Bryan que lo suban; mientras tanto escoge el colegio, el grupo y el paso a mano.</p>
+        <ol id="plan-tareas" class="lista-plan"></ol>
+        <details id="plan-manual" class="manual" hidden>
+          <summary>Manual de trabajo</summary>
+          <div id="plan-manual-cuerpo"></div>
+        </details>
+      </section>
+
+      <!-- 3. El trabajo: un solo botón grande -->
+      <section id="tarjeta-foto" class="tarjeta foto" aria-labelledby="t-foto">
+        <h2 id="t-foto">Fotos</h2>
+        <p id="trabajo-seleccion" class="seleccion">Escoge qué vas a trabajar.</p>
+        <div class="fila-cambiar">
+          <button id="cambiar-grupo" type="button" class="chico">Cambiar de grupo</button>
+          <button id="cambiar-paso" type="button" class="chico">Cambiar de paso</button>
+        </div>
+
+        <div id="panel-seleccion" class="panel" hidden>
+          <fieldset id="bloque-colegio">
+            <legend>¿Qué colegio y qué grupo?</legend>
             <div class="fila">
-              <div class="campo"><label for="minutos">Minutos trabajados (1 a 720)</label><input id="minutos" type="number" inputmode="numeric" min="1" max="720" step="1"></div>
-              <div class="campo"><label for="dia">Día</label><input id="dia" type="date"></div>
+              <div class="campo"><label for="colegio">Colegio</label><select id="colegio"></select></div>
+              <div class="campo"><label for="grupo">Grupo</label><select id="grupo"></select></div>
             </div>
+          </fieldset>
+          <fieldset id="bloque-paso">
+            <legend>¿Qué paso?</legend>
+            <div id="pasos" class="pasos" role="radiogroup" aria-label="Paso"></div>
+          </fieldset>
+        </div>
+
+        <div id="foto-contador" class="foto-contador">
+          <div id="foto-reloj" class="reloj foto-reloj" role="timer" aria-live="off">00:00</div>
+          <p id="foto-detalle" class="ayuda" role="status"></p>
+        </div>
+
+        <button id="siguiente-foto" type="button" class="grande principal gigante">Siguiente foto</button>
+        <p id="foto-ayuda" class="ayuda"></p>
+
+        <fieldset id="bloque-motivo" class="motivo">
+          <legend>¿La hiciste a mano por una razón? <span class="opcional">(opcional, un toque)</span></legend>
+          <div id="motivos" class="chips" role="radiogroup" aria-label="Por qué fue a mano"></div>
+          <div id="bloque-patron" hidden>
+            <label for="patron">Patrón que la frenó</label>
+            <select id="patron"></select>
           </div>
         </fieldset>
-
-        <fieldset id="bloque-fotos">
-          <legend>5. ¿Cuántas fotos terminaste?</legend>
-          <div class="contador">
-            <button type="button" id="fotos-menos" class="grande cuadrado" aria-label="Una foto menos">−</button>
-            <input id="fotos" type="number" inputmode="numeric" min="0" max="300" step="1" value="0" aria-label="Fotos terminadas">
-            <button type="button" id="fotos-mas" class="grande cuadrado" aria-label="Una foto más">+</button>
-          </div>
-        </fieldset>
-
-        <fieldset>
-          <legend>6. Nota corta <span class="opcional">(opcional)</span></legend>
-          <input id="nota" type="text" maxlength="120" spellcheck="true">
-          <p class="ayuda"><strong>No escribas nombres de estudiantes.</strong> <span id="nota-cuenta">0 / 120</span></p>
-        </fieldset>
-
-        <p id="error-registro" class="error" role="alert" hidden></p>
-        <p id="ok-registro" class="ok" role="status" hidden></p>
-        <button id="guardar" type="submit" class="grande principal">Guardar este registro</button>
-      </form>
+      </section>
 
       <section class="tarjeta" aria-labelledby="t-envio">
         <h2 id="t-envio">Envío</h2>
@@ -117,24 +148,25 @@
 
       <section id="tarjeta-rechazados" class="tarjeta" hidden aria-labelledby="t-rech">
         <h2 id="t-rech">Registros que no se pudieron guardar</h2>
-        <p class="ayuda">No se van a reenviar solos. Vuelve a anotarlos corrigiendo lo que dice cada uno, y descarta estos.</p>
+        <p class="ayuda">No se van a reenviar solos. Avísale a Manuela y descarta estos.</p>
         <ul id="lista-rechazados" class="lista"></ul>
       </section>
 
       <section class="tarjeta" aria-labelledby="t-hoy">
-        <h2 id="t-hoy">Lo que anotaste hoy desde este equipo</h2>
+        <h2 id="t-hoy">Lo que llevas hoy desde este equipo</h2>
         <p id="resumen-hoy">Todavía nada.</p>
       </section>
     </section>
   </main>
 
   <footer class="pie">
-    <p>Tiempos en hora de Bogotá. Lo que se anota es lo que cada persona declara.<span id="version-listas"></span></p>
+    <p>Tiempos en hora de Bogotá, según el reloj del servidor. Lo que se anota es lo que cada persona declara.<span id="version-listas"></span></p>
   </footer>
 
   <script src="config.js"></script>
   <script src="listas.js"></script>
   <script src="nucleo.js"></script>
+  <script src="jornada.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

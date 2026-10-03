@@ -156,3 +156,42 @@ button.pestana.activa { background: var(--marca); color: #fff; }
   html { font-size: 16px; }
   .reloj { font-size: 3rem; }
 }
+
+/* ---- Versión 2: jornada, plan y cronómetro por foto ---- */
+.reloj.quieto { color: var(--suave); }
+.jornada .reloj { font-size: 4.2rem; }
+.barra-meta { height: 0.9rem; background: #e3ded2; border-radius: 99px; overflow: hidden; margin: 0.2rem 0 0.4rem; }
+.barra-meta-relleno { height: 100%; width: 0; background: var(--marca); transition: width 0.4s; }
+.botones-pausa { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin: 0.8rem 0; }
+.etiqueta-pausa { flex-basis: 100%; font-weight: 600; color: var(--suave); }
+button.pausa { flex: 1 1 8rem; min-height: 3rem; font-weight: 600; border-style: dashed; }
+.en-pausa { background: var(--aviso-fondo); border-left: 6px solid var(--aviso); border-radius: 6px; padding: 0.6rem 1rem; margin: 0.8rem 0; }
+.en-pausa p { margin: 0 0 0.6rem; color: var(--aviso); }
+button.cerrar { margin-top: 0.6rem; border-color: var(--linea); color: var(--suave); }
+.gran-linea { font-size: 1.1rem; font-weight: 700; margin: 0.4rem 0; }
+.alerta-suave { background: var(--aviso-fondo); color: var(--aviso); padding: 0.4rem 0.8rem; border-radius: 8px; font-weight: 600; }
+.lista-plan { list-style: none; margin: 0.6rem 0; padding: 0; display: grid; gap: 0.5rem; }
+button.tarea { display: block; width: 100%; text-align: left; min-height: 3.4rem; padding: 0.6rem 0.9rem; }
+button.tarea.activa { background: var(--marca); color: #fff; border-color: var(--marca-oscura); }
+.tarea-texto { display: block; font-weight: 400; font-size: 0.9rem; margin-top: 0.2rem; }
+.etiqueta-muestra { display: inline-block; margin-top: 0.2rem; padding: 0 0.5rem; border-radius: 99px; background: var(--aviso-fondo); color: var(--aviso); font-size: 0.8rem; font-weight: 700; }
+button.tarea.activa .etiqueta-muestra { background: #ffffff33; color: #fff; }
+.manual { margin-top: 0.6rem; }
+.manual summary { cursor: pointer; font-weight: 700; padding: 0.4rem 0; }
+.manual h3 { font-size: 1rem; margin: 0.8rem 0 0.2rem; }
+.lista-reglas { margin: 0.2rem 0 0.4rem 1.2rem; padding: 0; }
+.seleccion { font-size: 1.15rem; font-weight: 700; margin: 0.2rem 0 0.4rem; }
+.fila-cambiar { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
+.panel { background: #f7f5ef; border: 1px dashed var(--linea); border-radius: 10px; padding: 0.4rem 0.6rem; margin: 0.4rem 0 0.8rem; }
+.foto-contador { text-align: center; }
+.foto .reloj.foto-reloj { font-size: 3rem; }
+button.gigante { min-height: 6.5rem; font-size: 1.8rem; margin-top: 0.4rem; }
+.chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+button.chip { flex: 1 1 12rem; min-height: 3rem; font-size: 0.95rem; font-weight: 600; text-align: center; }
+button.chip.activo { background: var(--aviso); color: #fff; border-color: var(--aviso); }
+button.paso.del-plan { border-width: 3px; }
+.motivo { margin-top: 1rem; }
+@media (max-width: 40rem) {
+  .jornada .reloj { font-size: 3.2rem; }
+  button.gigante { min-height: 5.5rem; font-size: 1.5rem; }
+}

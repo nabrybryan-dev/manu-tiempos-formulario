@@ -1,24 +1,41 @@
-/* Pantalla del formulario de tiempos. La lógica pesada vive en nucleo.js (probada con node); aquí solo se conecta a la página.
-   Funciona abierto como archivo local y publicado. Sin librerías externas. */
+/* Pantalla del formulario de tiempos (versión 2). La lógica pesada vive en nucleo.js y jornada.js (probadas con node); aquí solo se
+   conecta a la página. Funciona abierto como archivo local y publicado. Sin librerías externas.
+
+   Lo que NO hay en esta pantalla, a propósito: ningún botón que pare, pause, reinicie o borre la jornada ni el cronómetro de la foto.
+   La jornada se inicia y se cierra con la hora del servidor; las pausas se anotan con su motivo y el reloj sigue. */
 (function () {
   'use strict';
 
   var N = window.ManuNucleo;
+  var J = window.ManuJornada;
   var cfg = window.MANU_CONFIG || {};
   var listas = window.MANU_LISTAS || null;
   function $(id) { return document.getElementById(id); }
-  function ahora() { return Date.now(); }
+  function ahoraLocal() { return Date.now(); }
 
   function intentarAlmacen() { try { return window.localStorage; } catch (e) { return null; } }
   var almacen = N.crearAlmacen(intentarAlmacen());
   var cola = N.crearCola(almacen);
   var sesion = N.leerJson(almacen, N.CLAVES.sesion, null);
-  var crono = N.leerJson(almacen, N.CLAVES.cronometro, null) || N.cronometroNuevo();
   var ultimo = N.leerJson(almacen, N.CLAVES.ultimo, {}) || {};
   var aleatorio = N.aleatorioDelNavegador(window);
 
-  var modo = 'cronometro';
-  var paso = ultimo.paso && N.PASOS.indexOf(ultimo.paso) !== -1 ? ultimo.paso : null;
+  // Lo que dice el servidor (la verdad) y lo que se calcula con eso. La hora del servidor se lleva con el reloj interno del navegador
+  // (performance.now), que no cambia si alguien mueve la hora del equipo; lo guardado de la vez anterior solo sirve para pintar
+  // algo mientras llega la primera respuesta.
+  var servidor = N.leerJson(almacen, J.CLAVES.servidor, null);
+  var desfaseFecha = servidor && typeof servidor.desfase === 'number' ? servidor.desfase : 0;   // servidor − Date.now()
+  var desfasePerf = null;                                                                       // servidor − performance.now()
+  var jornada = null;          // la última jornada que contó el servidor
+  var plan = null;             // el plan de la persona (solo llega con alias y código)
+  var planDia = null;
+  var hoyServidor = null;
+  var trabajo = J.trabajoNuevo();
+  var panelModo = null;        // null | 'paso' | 'grupo' | 'todo'
+  var pidiendo = false;        // hay una llamada de jornada en vuelo
+  var confirmandoCierre = null;
+  var ultimaSincronia = 0;
+
   var enviando = false;
   var fallos = 0;
   var pausaHasta = 0;
@@ -26,16 +43,63 @@
   var mensajeEnvio = '';
   var aliasEntrada = sesion ? sesion.alias : (ultimo.alias || '');
 
-  // ---------------------------------------------------------------------------------------------------------------
-  // Pantallas
-  // ---------------------------------------------------------------------------------------------------------------
+  function perf() { return window.performance && typeof window.performance.now === 'function' ? window.performance.now() : Date.now(); }
+  function ahoraSrv() { return desfasePerf !== null ? J.horaDelServidor(desfasePerf, perf()) : J.horaDelServidor(desfaseFecha, ahoraLocal()); }
   function mostrar(id, si) { $(id).hidden = !si; }
-
   function aviso(id, texto) {
     var el = $(id);
     if (!texto) { el.hidden = true; el.textContent = ''; } else { el.hidden = false; el.textContent = texto; }
   }
+  function limpiarHijos(el) { while (el.firstChild) el.removeChild(el.firstChild); }
+  function nodo(tag, clase, texto) {
+    var e = document.createElement(tag);
+    if (clase) e.className = clase;
+    if (texto !== undefined && texto !== null) e.textContent = texto;
+    return e;
+  }
+  function opcion(valor, texto) { var o = document.createElement('option'); o.value = valor; o.textContent = texto; return o; }
 
+  // ---------------------------------------------------------------------------------------------------------------
+  // Lo que se guarda en este equipo (cada cosa con el alias de su dueño)
+  // ---------------------------------------------------------------------------------------------------------------
+  function guardarTrabajo() { if (sesion) J.guardarDe(almacen, J.CLAVES.trabajo, sesion.alias, trabajo); }
+  function guardarJornada() { if (sesion) J.guardarDe(almacen, J.CLAVES.jornada, sesion.alias, jornada); }
+  function guardarPlan() { if (sesion) J.guardarDe(almacen, J.CLAVES.plan, sesion.alias, { plan: plan, dia: planDia, hoy: hoyServidor }); }
+
+  function cargarDelEquipo() {
+    if (!sesion) return;
+    var j = J.leerDe(almacen, J.CLAVES.jornada, sesion.alias);
+    jornada = j && typeof j === 'object' ? j : null;
+    var p = J.leerDe(almacen, J.CLAVES.plan, sesion.alias);
+    plan = p && p.plan ? p.plan : null; planDia = p ? p.dia : null; hoyServidor = p ? p.hoy : null;
+    var t = J.leerDe(almacen, J.CLAVES.trabajo, sesion.alias);
+    trabajo = t && typeof t === 'object' && 'seleccion' in t ? t : J.trabajoNuevo();
+  }
+
+  // Los bloques terminados se vuelven registros: se validan igual que siempre, se guardan en la cola de este equipo (con o sin red)
+  // y salen juntos, hasta 50 por envío.
+  function guardarRegistros(lista) {
+    if (!lista || !lista.length || !sesion) return;
+    var hoy = N.bogota(ahoraSrv()).dia;
+    lista.forEach(function (r) {
+      r.id_cliente = N.nuevoIdCliente(aleatorio);
+      var v = N.validarRegistro(r, hoy);
+      if (!v.ok) {
+        cola.rechazar([{ reg: r, motivo: v.motivo, mensaje: N.mensajeDe(v.motivo), en: N.bogotaIso(ahoraSrv()) }]);
+        return;
+      }
+      if (!cola.agregar(r, ahoraLocal(), sesion.alias)) {
+        aviso('jornada-error', 'No hay espacio para guardar en este equipo. Envía lo pendiente primero.');
+        return;
+      }
+      N.agregarHistorial(almacen, r, 'pendiente');
+    });
+    intentarEnvio(true);
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // Pantallas
+  // ---------------------------------------------------------------------------------------------------------------
   function dibujar() {
     var conSesion = !!(sesion && sesion.alias && sesion.codigo);
     mostrar('pantalla-entrada', !conSesion);
@@ -48,7 +112,7 @@
     $('version-listas').textContent = listas && listas.semana ? ' Listas de la semana ' + listas.semana + '.' : '';
     dibujarRed();
     dibujarPendientes();
-    if (conSesion) { dibujarPasos(); dibujarBloquesSegunPaso(); dibujarCronometro(); dibujarRechazados(); dibujarHoy(); }
+    if (conSesion) { dibujarJornada(); dibujarPlan(); dibujarTrabajo(); dibujarRechazados(); dibujarHoy(); }
   }
 
   function dibujarRed() {
@@ -91,27 +155,248 @@
     if (err) { aviso('error-entrada', err); return; }
     aviso('error-entrada', '');
     var viejo = sesion && sesion.alias === alias ? sesion : null;
-    sesion = { alias: alias, codigo: codigo, avisoAceptadoEn: viejo ? viejo.avisoAceptadoEn : N.bogotaIso(ahora()), avisoConfirmado: viejo ? viejo.avisoConfirmado : false };
+    sesion = { alias: alias, codigo: codigo, avisoAceptadoEn: viejo ? viejo.avisoAceptadoEn : N.bogotaIso(ahoraLocal()), avisoConfirmado: viejo ? viejo.avisoConfirmado : false };
     if (!N.escribirJson(almacen, N.CLAVES.sesion, sesion) && almacen.persistente) aviso('error-entrada', 'No se pudo guardar en este equipo. Revisa el espacio del navegador.');
     ultimo.alias = alias;
     N.escribirJson(almacen, N.CLAVES.ultimo, ultimo);
     $('codigo').value = '';
     mensajeEnvio = '';
+    cargarDelEquipo();
     dibujar();
+    sincronizar(true);
     intentarEnvio(true);
   });
 
   $('salir').addEventListener('click', function () {
     var n = sesion ? cola.cantidad(sesion.alias) : 0;
+    var trabajando = !!(trabajo.foto || trabajo.bloque);
+    if (trabajando && !window.confirm('La foto en curso se cuenta como terminada y se guarda lo que llevas. ¿Salir?')) return;
     if (n > 0 && !window.confirm('Hay ' + n + ' registros sin enviar. Se quedan guardados en este equipo, pero solo salen cuando vuelvas a entrar con tu alias y tu código. ¿Salir?')) return;
+    cerrarTrabajo(ahoraSrv());
+    var alias = sesion ? sesion.alias : null;
     sesion = null;
     almacen.borrar(N.CLAVES.sesion);
+    if (alias) J.olvidarDe(almacen, alias);
+    jornada = null; plan = null; planDia = null; trabajo = J.trabajoNuevo(); panelModo = null;
     $('alias').value = aliasEntrada;
     dibujar();
   });
 
+  // Entrega lo que haya en curso (foto y bloque) como registros. Se usa al salir y al cerrar la jornada.
+  function cerrarTrabajo(ahoraMs) {
+    var r = J.cerrarTodo(trabajo, ahoraMs);
+    trabajo = r.t;
+    guardarTrabajo();
+    guardarRegistros(r.registros);
+  }
+
   // ---------------------------------------------------------------------------------------------------------------
-  // Colegio, grupo, paso y motivo
+  // Hablar con el servidor: todo lo de la jornada pasa por aquí y nada lleva una hora del equipo
+  // ---------------------------------------------------------------------------------------------------------------
+  function llamar(accion, datos) {
+    pidiendo = true;
+    dibujarJornada();
+    return J.llamar({ urlRegistrar: cfg.urlRegistrar, sesion: sesion, fetch: function (u, i) { return window.fetch(u, i); }, ahora: perf }, accion, datos)
+      .then(function (r) {
+        pidiendo = false;
+        dibujarJornada();
+        if (r.desfase !== null && r.desfase !== undefined) {
+          desfasePerf = r.desfase;
+          desfaseFecha = (perf() + desfasePerf) - ahoraLocal();
+          N.escribirJson(almacen, J.CLAVES.servidor, { desfase: desfaseFecha });
+        }
+        if (r.cuerpo && r.cuerpo.jornada !== undefined) aplicarJornada(r.cuerpo.jornada);
+        if (r.tipo === 'credenciales' || r.tipo === 'codigo') {
+          sesion = null; almacen.borrar(N.CLAVES.sesion);
+          $('alias').value = aliasEntrada;
+          aviso('error-entrada', r.mensaje);
+          dibujar();
+        }
+        return r;
+      });
+  }
+
+  // La jornada que cuenta el servidor manda. Si dice que se cerró (la cerró la persona en otro equipo, o el sistema a las 12 h),
+  // lo que estaba en curso sale como registros con la hora del cierre.
+  function aplicarJornada(j) {
+    jornada = j && typeof j === 'object' ? j : null;
+    guardarJornada();
+    if (jornada && !jornada.abierta && (trabajo.foto || trabajo.bloque)) {
+      var fin = Date.parse(jornada.fin);
+      cerrarTrabajo(isNaN(fin) ? ahoraSrv() : Math.min(fin, ahoraSrv()));
+    }
+    var c = J.conciliar(trabajo, jornada, ahoraSrv());
+    if (c.t !== trabajo || c.registros.length) {
+      trabajo = c.t;
+      guardarTrabajo();
+      guardarRegistros(c.registros);
+    }
+    dibujar();
+  }
+
+  function sincronizar(conPlan) {
+    if (!sesion || pidiendo) return Promise.resolve();
+    ultimaSincronia = ahoraLocal();
+    return llamar('pedir_plan', conPlan ? null : { solo_estado: true }).then(function (r) {
+      if (r.tipo === 'ok' && conPlan && r.cuerpo && 'plan' in r.cuerpo) {
+        plan = r.cuerpo.plan || null; planDia = r.cuerpo.plan_dia || null; hoyServidor = r.cuerpo.hoy || null;
+        guardarPlan();
+        if (!trabajo.seleccion) preseleccionarDelPlan();
+        dibujar();
+      } else if (r.tipo === 'ok') {
+        dibujar();
+      }
+    });
+  }
+
+  // El plan ya trae la primera tarea: la persona no tiene que escoger nada para empezar.
+  function preseleccionarDelPlan() {
+    var ts = J.tareasDelPlan(plan);
+    if (!ts.length) return;
+    trabajo.seleccion = { colegio: ts[0].colegio, grupo: ts[0].grupo, paso: ts[0].paso };
+    guardarTrabajo();
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // Jornada
+  // ---------------------------------------------------------------------------------------------------------------
+  function vista() { return J.vistaJornada(jornada, ahoraSrv(), plan && typeof plan.horas_jornada === 'number' ? plan.horas_jornada : null); }
+
+  function textoPausa(v) {
+    var hms = J.formatoSegundos(v.pausa.segundos);
+    return v.pausa.esAlmuerzo
+      ? 'Almorzando desde las ' + v.pausa.desdeHora + ' (' + hms + '). El reloj de la jornada está detenido y este tiempo no cuenta en tus horas.'
+      : 'En pausa: ' + v.pausa.etiqueta + ', desde las ' + v.pausa.desdeHora + ' (' + hms + '). El reloj de la jornada sigue.';
+  }
+
+  function dibujarJornada() {
+    var v = vista();
+    mostrar('jornada-sin-iniciar', v.estado === 'sin_iniciar');
+    mostrar('jornada-activa', v.estado === 'corriendo' || v.estado === 'en_pausa');
+    mostrar('jornada-cerrada', v.estado === 'cerrada');
+    $('jornada-iniciar').disabled = pidiendo;
+    if (v.estado === 'corriendo' || v.estado === 'en_pausa') {
+      $('jornada-reloj').textContent = J.formatoSegundos(v.segundos);
+      $('jornada-reloj').className = 'reloj ' + (v.estado === 'en_pausa' ? 'pausado' : 'corriendo');
+      $('jornada-barra').style.width = v.progreso !== undefined ? Math.round(v.progreso * 100) + '%' : '0%';
+      $('jornada-meta').textContent = J.textoMeta(v);
+      $('jornada-detalle').textContent = 'Empezó a las ' + v.inicioHora + '. Pausas anotadas: ' + J.formatoSegundos(v.pausasSegundos) + (v.almuerzoUsado ? '. Almuerzo (fuera de tus horas): ' + J.formatoSegundos(v.almuerzoSegundos) : '') + '.' + (v.vencida ? ' Pasó de 12 horas: el sistema la cierra sola.' : '');
+      mostrar('jornada-pausas', v.estado === 'corriendo');
+      mostrar('jornada-en-pausa', v.estado === 'en_pausa');
+      Array.prototype.forEach.call($('jornada-pausas').querySelectorAll('button'), function (b) { b.disabled = pidiendo; });
+      $('pausa-volver').disabled = pidiendo;
+      $('pausa-volver').textContent = v.pausa && v.pausa.esAlmuerzo ? 'Volver del almuerzo' : 'Volver al trabajo';
+      var bAlm = $('jornada-pausas').querySelector('[data-pausa="almuerzo"]');
+      bAlm.disabled = pidiendo || v.almuerzoUsado;
+      bAlm.textContent = v.almuerzoUsado ? 'Almuerzo ya usado hoy' : 'Salir a almorzar';
+      $('jornada-cerrar').disabled = pidiendo;
+      if (v.estado === 'en_pausa') $('pausa-texto').textContent = textoPausa(v);
+    }
+    if (v.estado === 'cerrada') {
+      var t = 'Jornada cerrada a las ' + (v.finHora || '') + (v.cierre === 'sistema' ? ' por el sistema (pasó de 12 horas sin cerrarse)' : '') + '. Contó ' + J.formatoSegundos(v.segundos) + ', con ' + J.formatoSegundos(v.pausasSegundos) + ' de pausas anotadas. ' + J.textoMeta(v);
+      $('jornada-cerrada-texto').textContent = t;
+    }
+  }
+
+  function errorDeJornada(r) {
+    if (r.tipo === 'estado') aviso('jornada-error', r.mensaje);
+    else if (r.tipo === 'ok') aviso('jornada-error', '');
+    else aviso('jornada-error', r.mensaje || 'No se pudo.');
+  }
+
+  $('jornada-iniciar').addEventListener('click', function () {
+    aviso('jornada-error', '');
+    llamar('iniciar_jornada').then(function (r) {
+      errorDeJornada(r);
+      if (r.tipo === 'ok' || r.tipo === 'estado') { if (!trabajo.seleccion && plan) preseleccionarDelPlan(); dibujar(); }
+    });
+  });
+
+  Array.prototype.forEach.call($('jornada-pausas').querySelectorAll('[data-pausa]'), function (b) {
+    b.addEventListener('click', function () {
+      aviso('jornada-error', '');
+      llamar('pausa', { motivo: b.getAttribute('data-pausa') }).then(errorDeJornada);
+    });
+  });
+
+  $('pausa-volver').addEventListener('click', function () {
+    aviso('jornada-error', '');
+    llamar('pausa', { volver: true }).then(errorDeJornada);
+  });
+
+  // Cerrar la jornada pide dos toques (para que un toque sin querer no la cierre).
+  function restablecerCierre() {
+    if (confirmandoCierre) { clearTimeout(confirmandoCierre); confirmandoCierre = null; }
+    $('jornada-cerrar').textContent = 'Cerrar jornada';
+    mostrar('jornada-cerrar-ayuda', false);
+  }
+
+  $('jornada-cerrar').addEventListener('click', function () {
+    if (!confirmandoCierre) {
+      var v = vista();
+      $('jornada-cerrar').textContent = 'Toca otra vez para cerrar la jornada';
+      $('jornada-cerrar-ayuda').textContent = (v.metaSegundos && v.restanteSegundos > 0 ? J.textoMeta(v) + ' ' : '') + 'Una jornada cerrada no se vuelve a abrir el mismo día.';
+      mostrar('jornada-cerrar-ayuda', true);
+      confirmandoCierre = setTimeout(restablecerCierre, 6000);
+      return;
+    }
+    restablecerCierre();
+    aviso('jornada-error', '');
+    llamar('cerrar_jornada').then(function (r) { errorDeJornada(r); dibujar(); });
+  });
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // Plan del día y manual de trabajo (todo con textContent: el plan viene del servidor y se trata como texto)
+  // ---------------------------------------------------------------------------------------------------------------
+  function dibujarPlan() {
+    var hay = !!(plan && typeof plan === 'object');
+    mostrar('plan-vacio', !hay);
+    $('plan-saludo').textContent = hay && plan.saludo ? plan.saludo : '';
+    $('plan-resumen').textContent = hay && plan.resumen ? plan.resumen : '';
+    var hoy = hoyServidor || N.bogota(ahoraSrv()).dia;
+    if (hay && planDia && planDia !== hoy) aviso('plan-aviso', 'Este plan es del ' + planDia + ': el de hoy todavía no se ha subido.');
+    else aviso('plan-aviso', hay && plan.avisos && plan.avisos.length ? String(plan.avisos[0]) : '');
+    var ol = $('plan-tareas');
+    limpiarHijos(ol);
+    var tareas = J.tareasDelPlan(plan);
+    tareas.forEach(function (t, i) {
+      var li = nodo('li', 'tarea-plan');
+      var b = nodo('button', 'tarea' + (esSeleccion(t) ? ' activa' : ''));
+      b.type = 'button';
+      b.setAttribute('data-tarea', String(i));
+      b.appendChild(nodo('strong', null, (t.orden || i + 1) + '. ' + (t.colegio_nombre || t.colegio) + ' · ' + t.grupo + ' · ' + (t.paso_rotulo || t.paso)));
+      if (t.texto) b.appendChild(nodo('span', 'tarea-texto', String(t.texto)));
+      if (t.muestra === 'poca_muestra') b.appendChild(nodo('span', 'etiqueta-muestra', 'poca muestra'));
+      if (t.muestra === 'sin_dato') b.appendChild(nodo('span', 'etiqueta-muestra', 'sin dato'));
+      b.addEventListener('click', function () { aplicarSeleccion({ colegio: t.colegio, grupo: t.grupo, paso: t.paso }); });
+      li.appendChild(b);
+      ol.appendChild(li);
+    });
+    var cuerpo = $('plan-manual-cuerpo');
+    limpiarHijos(cuerpo);
+    var manual = hay && plan.manual && typeof plan.manual === 'object' ? plan.manual : null;
+    mostrar('plan-manual', !!manual);
+    if (manual) {
+      var agregar = function (titulo, reglas) {
+        if (!Array.isArray(reglas) || !reglas.length) return;
+        cuerpo.appendChild(nodo('h3', null, titulo));
+        var ul = nodo('ul', 'lista-reglas');
+        reglas.forEach(function (r) { ul.appendChild(nodo('li', null, String(r))); });
+        cuerpo.appendChild(ul);
+      };
+      agregar('Para todo el día', manual.general);
+      var pasos = manual.pasos && typeof manual.pasos === 'object' ? manual.pasos : {};
+      J.pasosDelPlan(plan).forEach(function (p) { if (pasos[p]) agregar(N.ETIQUETAS_PASO[p] || p, pasos[p]); });
+    }
+  }
+
+  function esSeleccion(t) {
+    var s = trabajo.seleccion;
+    return !!(s && s.colegio === t.colegio && s.grupo === t.grupo && s.paso === t.paso);
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // Escoger colegio, grupo y paso (una vez; cambiar es un toque)
   // ---------------------------------------------------------------------------------------------------------------
   function poblarColegios() {
     var sel = $('colegio');
@@ -119,7 +404,7 @@
     sel.appendChild(opcion('', 'Escoge el colegio'));
     var cs = (listas && listas.colegios) || [];
     cs.forEach(function (c) { sel.appendChild(opcion(c.codigo, c.nombre ? c.nombre + ' (' + c.codigo + ')' : c.codigo)); });
-    if (ultimo.colegio && cs.some(function (c) { return c.codigo === ultimo.colegio; })) sel.value = ultimo.colegio;
+    if (trabajo.seleccion && cs.some(function (c) { return c.codigo === trabajo.seleccion.colegio; })) sel.value = trabajo.seleccion.colegio;
     poblarGrupos();
   }
 
@@ -130,219 +415,175 @@
     var cs = (listas && listas.colegios) || [];
     var c = cs.filter(function (x) { return x.codigo === $('colegio').value; })[0];
     ((c && c.grupos) || []).forEach(function (g) { sel.appendChild(opcion(g, g)); });
-    if (c && ultimo.grupo && c.grupos.indexOf(ultimo.grupo) !== -1) sel.value = ultimo.grupo;
+    if (c && trabajo.seleccion && trabajo.seleccion.colegio === c.codigo && c.grupos.indexOf(trabajo.seleccion.grupo) !== -1) sel.value = trabajo.seleccion.grupo;
   }
-
-  function opcion(valor, texto) {
-    var o = document.createElement('option');
-    o.value = valor;
-    o.textContent = texto;
-    return o;
-  }
-
-  $('colegio').addEventListener('change', function () { ultimo.colegio = this.value; ultimo.grupo = ''; poblarGrupos(); N.escribirJson(almacen, N.CLAVES.ultimo, ultimo); });
-  $('grupo').addEventListener('change', function () { ultimo.grupo = this.value; N.escribirJson(almacen, N.CLAVES.ultimo, ultimo); });
 
   function dibujarPasos() {
     var cont = $('pasos');
-    if (cont.children.length === 0) {
-      N.PASOS.forEach(function (p) {
-        var b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'paso' + (p === 'otra_actividad' ? ' otra' : '');
-        b.setAttribute('role', 'radio');
-        b.setAttribute('data-paso', p);
-        b.textContent = N.ETIQUETAS_PASO[p];
-        b.addEventListener('click', function () { escogerPaso(p); });
-        cont.appendChild(b);
-      });
-      poblarColegios();
-    }
-    Array.prototype.forEach.call(cont.children, function (b) {
-      var es = b.getAttribute('data-paso') === paso;
+    var delPlan = J.pasosDelPlan(plan);
+    var orden = delPlan.concat(J.PASOS_DE_FOTO.filter(function (p) { return delPlan.indexOf(p) === -1; }));
+    limpiarHijos(cont);
+    orden.forEach(function (p) {
+      var es = !!(trabajo.seleccion && trabajo.seleccion.paso === p);
+      var b = nodo('button', 'paso' + (es ? ' activo' : '') + (plan && delPlan.indexOf(p) !== -1 && delPlan.length < J.PASOS_DE_FOTO.length ? ' del-plan' : ''), N.ETIQUETAS_PASO[p]);
+      b.type = 'button';
+      b.setAttribute('role', 'radio');
       b.setAttribute('aria-checked', es ? 'true' : 'false');
-      b.className = 'paso' + (b.getAttribute('data-paso') === 'otra_actividad' ? ' otra' : '') + (es ? ' activo' : '');
+      b.setAttribute('data-paso', p);
+      b.addEventListener('click', function () { escogerPaso(p); });
+      cont.appendChild(b);
     });
   }
 
-  function escogerPaso(p) {
-    paso = p;
-    ultimo.paso = p;
-    N.escribirJson(almacen, N.CLAVES.ultimo, ultimo);
+  function abrirPanel(modo) {
+    panelModo = modo;
+    poblarColegios();
     dibujarPasos();
-    dibujarBloquesSegunPaso();
+    mostrar('panel-seleccion', true);
+    mostrar('bloque-colegio', modo !== 'paso');
+    mostrar('bloque-paso', modo !== 'grupo');
+  }
+  function cerrarPanel() { panelModo = null; mostrar('panel-seleccion', false); }
+
+  function escogerPaso(p) {
+    var colegio = panelModo === 'paso' && trabajo.seleccion ? trabajo.seleccion.colegio : $('colegio').value;
+    var grupo = panelModo === 'paso' && trabajo.seleccion ? trabajo.seleccion.grupo : $('grupo').value;
+    if (!colegio || !grupo) { aviso('jornada-error', 'Escoge primero el colegio y el grupo.'); return; }
+    aviso('jornada-error', '');
+    aplicarSeleccion({ colegio: colegio, grupo: grupo, paso: p });
   }
 
-  // «Otra actividad» no lleva colegio, grupo, motivo ni fotos.
-  function dibujarBloquesSegunPaso() {
-    var otra = paso === 'otra_actividad';
-    mostrar('bloque-colegio', !otra);
-    mostrar('bloque-motivo', !otra);
-    mostrar('bloque-fotos', !otra);
+  $('colegio').addEventListener('change', function () { poblarGrupos(); });
+  $('grupo').addEventListener('change', function () {
+    if (panelModo === 'grupo' && trabajo.seleccion && $('colegio').value && $('grupo').value) {
+      aplicarSeleccion({ colegio: $('colegio').value, grupo: $('grupo').value, paso: trabajo.seleccion.paso });
+    }
+  });
+  $('cambiar-grupo').addEventListener('click', function () { abrirPanel(trabajo.seleccion ? 'grupo' : 'todo'); });
+  $('cambiar-paso').addEventListener('click', function () { abrirPanel(trabajo.seleccion ? 'paso' : 'todo'); });
+
+  function aplicarSeleccion(sel) {
+    var r = J.elegir(trabajo, sel, ahoraSrv());
+    trabajo = r.t;
+    ultimo.colegio = sel.colegio; ultimo.grupo = sel.grupo; ultimo.paso = sel.paso;
+    N.escribirJson(almacen, N.CLAVES.ultimo, ultimo);
+    guardarTrabajo();
+    guardarRegistros(r.registros);
+    cerrarPanel();
+    dibujar();
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // El botón grande y el motivo (opcional, un toque)
+  // ---------------------------------------------------------------------------------------------------------------
+  function jornadaCorriendo() { return vista().estado === 'corriendo' && !vista().vencida; }
+
+  $('siguiente-foto').addEventListener('click', function () {
+    if (!jornadaCorriendo()) {
+      var e = vista().estado;
+      aviso('jornada-error', e === 'en_pausa' ? 'Estás en pausa: toca el botón para volver.' : (e === 'cerrada' ? 'La jornada de hoy ya se cerró.' : 'Inicia la jornada primero.'));
+      return;
+    }
+    aviso('jornada-error', '');
+    if (!trabajo.seleccion) { abrirPanel('todo'); return; }
+    var r = J.siguienteFoto(trabajo, ahoraSrv());
+    if (r.ignorado) return;
+    trabajo = r.t;
+    guardarTrabajo();
+    guardarRegistros(r.registros);
+    dibujarTrabajo();
+    dibujarHoy();
+  });
+
+  function poblarMotivos() {
+    var cont = $('motivos');
+    limpiarHijos(cont);
+    var activo = trabajo.etiqueta && trabajo.etiqueta.motivo ? trabajo.etiqueta.motivo : '';
+    N.MOTIVOS_MANUAL.forEach(function (m) {
+      var b = nodo('button', 'chip' + (activo === m ? ' activo' : ''), N.ETIQUETAS_MOTIVO[m]);
+      b.type = 'button';
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', activo === m ? 'true' : 'false');
+      b.setAttribute('data-motivo', m);
+      b.addEventListener('click', function () {
+        trabajo = J.ponerEtiqueta(trabajo, activo === m ? null : m, null);
+        guardarTrabajo();
+        dibujarTrabajo();
+      });
+      cont.appendChild(b);
+    });
+    var paso = trabajo.seleccion ? trabajo.seleccion.paso : null;
+    var ps = ((listas && listas.patrones) || []).filter(function (p) { return paso && p.llave.indexOf(paso + '.') === 0; });
+    var verPatron = activo === 'bloqueada_por_patron' && ps.length > 0;
+    mostrar('bloque-patron', verPatron);
+    var sel = $('patron');
+    sel.innerHTML = '';
+    sel.appendChild(opcion('', '(no sé cuál)'));
+    ps.forEach(function (p) {
+      var texto = p.llave + (typeof p.fotos === 'number' ? ' (' + p.fotos + (p.fotos === 1 ? ' foto)' : ' fotos)') : '');
+      sel.appendChild(opcion(p.llave, p.titulo ? p.titulo + ' — ' + texto : texto));
+    });
+    sel.value = trabajo.etiqueta && trabajo.etiqueta.patron ? trabajo.etiqueta.patron : '';
+  }
+
+  $('patron').addEventListener('change', function () {
+    trabajo = J.ponerEtiqueta(trabajo, 'bloqueada_por_patron', this.value || null);
+    guardarTrabajo();
+    dibujarTrabajo();
+  });
+
+  function dibujarTrabajo() {
+    var s = trabajo.seleccion;
+    var ponerNombre = function (cod) {
+      var c = ((listas && listas.colegios) || []).filter(function (x) { return x.codigo === cod; })[0];
+      return c && c.nombre ? c.nombre : cod;
+    };
+    $('trabajo-seleccion').textContent = s ? ponerNombre(s.colegio) + ' · ' + s.grupo + ' · ' + (N.ETIQUETAS_PASO[s.paso] || s.paso) : 'Escoge qué vas a trabajar.';
+    var v = vista();
+    var puede = v.estado === 'corriendo' && !v.vencida;
+    $('siguiente-foto').disabled = !puede;
+    $('siguiente-foto').textContent = 'Siguiente foto';
+    var ms = J.msDeFoto(trabajo, ahoraSrv());
+    $('foto-reloj').textContent = J.formatoFoto(ms);
+    $('foto-reloj').className = 'reloj foto-reloj ' + (trabajo.foto ? (trabajo.pausaDesdeMs !== null ? 'pausado' : 'corriendo') : 'quieto');
+    var hoyFotos = N.resumenDelDia(almacen, N.bogota(ahoraSrv()).dia).fotos + J.fotosDelBloque(trabajo);
+    $('foto-detalle').textContent = (trabajo.foto ? 'Foto en curso. ' : 'Sin foto en curso. ') + 'Fotos terminadas hoy: ' + hoyFotos + '.';
+    var ayuda;
+    if (v.estado === 'sin_iniciar') ayuda = 'Primero inicia la jornada.';
+    else if (v.estado === 'cerrada') ayuda = 'La jornada de hoy ya se cerró.';
+    else if (v.estado === 'en_pausa') ayuda = 'Estás en pausa: el cronómetro de la foto espera. Toca el botón para volver.';
+    else if (!s) ayuda = 'Escoge colegio, grupo y paso (o una tarea de tu plan) y toca «Siguiente foto».';
+    else if (!trabajo.foto) ayuda = 'Toca «Siguiente foto» cuando empieces la primera.';
+    else ayuda = 'Cada toque cierra la foto anterior con sus minutos y abre la siguiente. Si vas a hacer otra cosa, anota una pausa.';
+    $('foto-ayuda').textContent = ayuda;
+    $('cambiar-grupo').disabled = false;
+    $('cambiar-paso').disabled = false;
     poblarMotivos();
   }
 
-  function poblarMotivos() {
-    var sel = $('motivo');
-    var antes = sel.value;
-    sel.innerHTML = '';
-    sel.appendChild(opcion('', '(no aplica o no sé)'));
-    var g1 = document.createElement('optgroup');
-    g1.label = 'Por qué fue a mano';
-    N.MOTIVOS_MANUAL.forEach(function (m) { g1.appendChild(opcion('m:' + m, N.ETIQUETAS_MOTIVO[m])); });
-    sel.appendChild(g1);
-    var ps = ((listas && listas.patrones) || []).filter(function (p) { return paso && p.llave.indexOf(paso + '.') === 0; });
-    if (ps.length) {
-      var g2 = document.createElement('optgroup');
-      g2.label = 'Patrón que la frenó (de PATRONES.json)';
-      ps.forEach(function (p) {
-        var texto = p.llave + (typeof p.fotos === 'number' ? ' (' + p.fotos + (p.fotos === 1 ? ' foto)' : ' fotos)') : '');
-        if (p.titulo) texto = p.titulo + ' — ' + texto;
-        g2.appendChild(opcion('p:' + p.llave, texto));
-      });
-      sel.appendChild(g2);
-    }
-    if (antes) sel.value = antes;
-    if (sel.value !== antes) sel.value = '';
-  }
-
   // ---------------------------------------------------------------------------------------------------------------
-  // Cronómetro y minutos a mano
+  // Los relojes (se refrescan solos; el servidor manda cada cinco minutos y al volver a la pestaña)
   // ---------------------------------------------------------------------------------------------------------------
-  function guardarCrono() { N.escribirJson(almacen, N.CLAVES.cronometro, crono); }
-
-  function dibujarCronometro() {
-    var e = crono.estado;
-    $('reloj').textContent = N.formatoReloj(N.transcurridoMs(crono, ahora()));
-    var ini = $('crono-iniciar'), pau = $('crono-pausar'), ter = $('crono-terminar');
-    ini.textContent = e === 'terminado' ? 'Descartar y empezar de nuevo' : 'Iniciar';
-    ini.disabled = !(e === 'quieto' || e === 'terminado');
-    pau.textContent = e === 'pausado' ? 'Seguir' : 'Pausar';
-    pau.disabled = !(e === 'corriendo' || e === 'pausado');
-    ter.disabled = !(e === 'corriendo' || e === 'pausado');
-    $('reloj').className = 'reloj ' + e;
-    var r = crono.resultado;
-    var t = '';
-    if (e === 'corriendo') t = 'Corriendo desde las ' + N.bogota(crono.inicioMs).hora + '. Si cierras la pestaña, el cronómetro sigue contando.';
-    else if (e === 'pausado') t = 'En pausa. Las pausas no se cuentan.';
-    else if (e === 'terminado' && r) {
-      if (r.problema === 'muy_corto') t = 'El cronómetro marcó menos de medio minuto; no se puede guardar. Descártalo y empieza de nuevo.';
-      else if (r.problema === 'muy_largo') t = 'El cronómetro pasó de 12 horas, seguro se quedó corriendo. Descártalo y anota los minutos a mano.';
-      else t = 'Terminaste: ' + N.formatoDuracion(r.minutos) + (r.inicio ? ' (de ' + r.inicio + ' a ' + r.fin + ')' : '') + '. Pon las fotos y guarda.';
-    }
-    $('crono-resumen').textContent = t;
-  }
-
-  setInterval(function () { if (crono.estado === 'corriendo') $('reloj').textContent = N.formatoReloj(N.transcurridoMs(crono, ahora())); }, 250);
-
-  $('crono-iniciar').addEventListener('click', function () {
-    crono = crono.estado === 'terminado' ? N.cronometroNuevo() : N.iniciar(crono, ahora());
-    guardarCrono(); dibujarCronometro();
-  });
-  $('crono-pausar').addEventListener('click', function () {
-    crono = crono.estado === 'pausado' ? N.reanudar(crono, ahora()) : N.pausar(crono, ahora());
-    guardarCrono(); dibujarCronometro();
-  });
-  $('crono-terminar').addEventListener('click', function () { crono = N.terminar(crono, ahora()); guardarCrono(); dibujarCronometro(); });
-
-  function cambiarModo(m) {
-    modo = m;
-    mostrar('panel-cronometro', m === 'cronometro');
-    mostrar('panel-manual', m === 'manual');
-    $('modo-cronometro').className = 'pestana' + (m === 'cronometro' ? ' activa' : '');
-    $('modo-manual').className = 'pestana' + (m === 'manual' ? ' activa' : '');
-    $('modo-cronometro').setAttribute('aria-pressed', m === 'cronometro' ? 'true' : 'false');
-    $('modo-manual').setAttribute('aria-pressed', m === 'manual' ? 'true' : 'false');
-    if (m === 'manual') prepararDia();
-  }
-  $('modo-cronometro').addEventListener('click', function () { cambiarModo('cronometro'); });
-  $('modo-manual').addEventListener('click', function () { cambiarModo('manual'); });
-
-  function prepararDia() {
-    var hoy = N.bogota(ahora()).dia;
-    var desde = new Date(Date.UTC(+hoy.slice(0, 4), +hoy.slice(5, 7) - 1, +hoy.slice(8, 10)) - N.LIMITES.diasAtras * 86400000).toISOString().slice(0, 10);
-    $('dia').max = hoy;
-    $('dia').min = desde;
-    if (!$('dia').value) $('dia').value = hoy;
-  }
-
-  function ajustarFotos(d) {
-    var v = parseInt($('fotos').value, 10);
-    if (isNaN(v)) v = 0;
-    $('fotos').value = String(Math.max(N.LIMITES.fotosMin, Math.min(N.LIMITES.fotosMax, v + d)));
-  }
-  $('fotos-menos').addEventListener('click', function () { ajustarFotos(-1); });
-  $('fotos-mas').addEventListener('click', function () { ajustarFotos(1); });
-  $('nota').addEventListener('input', function () { $('nota-cuenta').textContent = Array.from(this.value).length + ' / ' + N.LIMITES.notaMax; });
-
-  // ---------------------------------------------------------------------------------------------------------------
-  // Guardar un registro
-  // ---------------------------------------------------------------------------------------------------------------
-  function leerNumeroEntero(texto) {
-    var t = String(texto === undefined || texto === null ? '' : texto).replace(/^ +| +$/g, '');
-    if (!/^-?[0-9]+$/.test(t)) return NaN;
-    return parseInt(t, 10);
-  }
-
-  $('formulario').addEventListener('submit', function (ev) {
-    ev.preventDefault();
-    aviso('error-registro', ''); aviso('ok-registro', '');
+  setInterval(function () {
     if (!sesion) return;
-    if (!paso) { aviso('error-registro', 'Escoge el paso que hiciste.'); return; }
-    var otra = paso === 'otra_actividad';
-    var hoy = N.bogota(ahora()).dia;
-    var r = { id_cliente: N.nuevoIdCliente(aleatorio), paso: paso };
-
-    if (modo === 'cronometro') {
-      if (crono.estado !== 'terminado' || !crono.resultado || crono.resultado.problema) {
-        aviso('error-registro', crono.estado === 'corriendo' || crono.estado === 'pausado' ? 'Termina el cronómetro antes de guardar.' : 'Falta el tiempo: usa el cronómetro o anota los minutos a mano.');
-        return;
-      }
-      r.dia = crono.resultado.dia;
-      r.minutos = crono.resultado.minutos;
-      if (crono.resultado.inicio) { r.inicio = crono.resultado.inicio; r.fin = crono.resultado.fin; }
-    } else {
-      var m = leerNumeroEntero($('minutos').value);
-      if (isNaN(m)) { aviso('error-registro', N.MENSAJES.minutos); return; }
-      r.minutos = m;
-      r.dia = $('dia').value || hoy;
+    var v = vista();
+    if (v.estado === 'corriendo' || v.estado === 'en_pausa') {
+      $('jornada-reloj').textContent = J.formatoSegundos(v.segundos);
+      if (v.estado === 'en_pausa') $('pausa-texto').textContent = textoPausa(v);
+      if (v.vencida && ahoraLocal() - ultimaSincronia > 10000) sincronizar(false);
     }
-
-    if (!otra) {
-      r.colegio = $('colegio').value;
-      r.grupo = $('grupo').value;
-      if (!r.colegio || !r.grupo) { aviso('error-registro', 'Escoge el colegio y el grupo.'); return; }
-      var f = leerNumeroEntero($('fotos').value);
-      if (isNaN(f)) { aviso('error-registro', N.MENSAJES.fotos); return; }
-      r.fotos_terminadas = f;
-      var mo = $('motivo').value;
-      if (mo.indexOf('m:') === 0) r.motivo_manual = mo.slice(2);
-      else if (mo.indexOf('p:') === 0) { r.patron = mo.slice(2); r.motivo_manual = 'bloqueada_por_patron'; }
-    } else {
-      r.fotos_terminadas = 0;
+    if (trabajo.foto) $('foto-reloj').textContent = J.formatoFoto(J.msDeFoto(trabajo, ahoraSrv()));
+    if (v.estado === 'corriendo' || v.estado === 'en_pausa') {
+      $('jornada-meta').textContent = J.textoMeta(v);
+      $('jornada-barra').style.width = v.progreso !== undefined ? Math.round(v.progreso * 100) + '%' : '0%';
+      $('jornada-detalle').textContent = 'Empezó a las ' + v.inicioHora + '. Pausas anotadas: ' + J.formatoSegundos(v.pausasSegundos) + (v.almuerzoUsado ? '. Almuerzo (fuera de tus horas): ' + J.formatoSegundos(v.almuerzoSegundos) : '') + '.' + (v.vencida ? ' Pasó de 12 horas: el sistema la cierra sola.' : '');
     }
-    var nota = String($('nota').value || '').replace(/^ +| +$/g, '');
-    if (nota) r.nota = nota;
+  }, 250);
 
-    var v = N.validarRegistro(r, hoy);
-    if (!v.ok) { aviso('error-registro', N.mensajeDe(v.motivo)); return; }
-
-    if (!cola.agregar(r, ahora(), sesion.alias)) {
-      aviso('error-registro', 'No hay espacio para guardar en este equipo. No se perdió lo que escribiste: libera espacio del navegador o envía lo pendiente primero.');
-      return;
-    }
-    N.agregarHistorial(almacen, r, 'pendiente');
-
-    // Todo bien: se limpia lo que cambia de un registro a otro y se deja lo que suele repetirse (colegio, grupo, paso).
-    crono = N.cronometroNuevo(); guardarCrono();
-    $('minutos').value = ''; $('fotos').value = '0'; $('nota').value = ''; $('nota-cuenta').textContent = '0 / ' + N.LIMITES.notaMax; $('motivo').value = '';
-    aviso('ok-registro', 'Guardado en este equipo (' + N.formatoDuracion(r.minutos) + '). Se envía apenas haya conexión.');
-    dibujar();
-    intentarEnvio(true);
-  });
+  setInterval(function () { if (sesion && ahoraLocal() - ultimaSincronia > 300000) sincronizar(false); }, 30000);
 
   // ---------------------------------------------------------------------------------------------------------------
-  // Envío con reintento
+  // Envío con reintento (la cola sin conexión de siempre)
   // ---------------------------------------------------------------------------------------------------------------
   function programar(ms) {
     if (reintento) clearTimeout(reintento);
@@ -351,7 +592,7 @@
 
   function intentarEnvio(manual) {
     if (enviando || !sesion) return;
-    if (!manual && ahora() < pausaHasta) return;
+    if (!manual && ahoraLocal() < pausaHasta) return;
     if (cola.cantidad(sesion.alias) === 0) { mensajeEnvio = ''; dibujarPendientes(); return; }
     if (!manual && navigator.onLine === false) {
       mensajeEnvio = 'Sin conexión por ahora.';
@@ -362,7 +603,7 @@
     dibujarPendientes();
     N.enviarPendientes({
       cola: cola, almacen: almacen, urlRegistrar: cfg.urlRegistrar, sesion: sesion,
-      fetch: function (u, i) { return window.fetch(u, i); }, ahora: ahora
+      fetch: function (u, i) { return window.fetch(u, i); }, ahora: ahoraSrv
     }).then(resultadoEnvio, function () { resultadoEnvio({ estado: 'sin_red' }); });
   }
 
@@ -381,7 +622,7 @@
         aviso('error-entrada', r.mensaje);
         break;
       case 'pausa':
-        pausaHasta = ahora() + (r.segundos || 900) * 1000;
+        pausaHasta = ahoraLocal() + (r.segundos || 900) * 1000;
         mensajeEnvio = r.mensaje + ' Se reintenta solo.';
         programar((r.segundos || 900) * 1000 + 1000);
         break;
@@ -398,9 +639,9 @@
   }
 
   $('enviar-ahora').addEventListener('click', function () { pausaHasta = 0; intentarEnvio(true); });
-  window.addEventListener('online', function () { dibujarRed(); fallos = 0; intentarEnvio(false); });
+  window.addEventListener('online', function () { dibujarRed(); fallos = 0; intentarEnvio(false); sincronizar(false); });
   window.addEventListener('offline', function () { dibujarRed(); dibujarPendientes(); });
-  document.addEventListener('visibilitychange', function () { if (!document.hidden) { dibujarRed(); intentarEnvio(false); } });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) { dibujarRed(); intentarEnvio(false); sincronizar(false); } });
   window.addEventListener('storage', function () { dibujarPendientes(); dibujarRechazados(); dibujarHoy(); });
   // Una red de seguridad: si hay pendientes y nada está programado, cada minuto lo intenta.
   setInterval(function () { if (!reintento && sesion && cola.cantidad(sesion.alias) > 0) intentarEnvio(false); }, 60000);
@@ -427,19 +668,20 @@
   }
 
   function dibujarHoy() {
-    var r = N.resumenDelDia(almacen, N.bogota(ahora()).dia);
-    $('resumen-hoy').textContent = r.registros === 0 ? 'Todavía nada.' :
-      r.registros + (r.registros === 1 ? ' registro' : ' registros') + ' · ' + N.formatoDuracion(r.minutos) + ' en total (' +
-      N.formatoDuracion(r.minutosEdicion) + ' de edición) · ' + r.fotos + ' fotos terminadas.';
+    var r = N.resumenDelDia(almacen, N.bogota(ahoraSrv()).dia);
+    var enBloque = J.fotosDelBloque(trabajo);
+    $('resumen-hoy').textContent = r.registros === 0 && enBloque === 0 ? 'Todavía nada.' :
+      r.registros + (r.registros === 1 ? ' bloque guardado' : ' bloques guardados') + ' · ' + N.formatoDuracion(r.minutos) + ' en total · ' + (r.fotos + enBloque) + ' fotos terminadas' +
+      (enBloque ? ' (' + enBloque + ' en el bloque que se está juntando)' : '') + '.';
   }
 
   // ---------------------------------------------------------------------------------------------------------------
   // Arranque
   // ---------------------------------------------------------------------------------------------------------------
   if (aliasEntrada && !sesion) $('alias').value = aliasEntrada;
-  cambiarModo('cronometro');
+  cargarDelEquipo();
   dibujar();
-  if (sesion) intentarEnvio(false);
+  if (sesion) { sincronizar(true); intentarEnvio(false); }
 
   // Para que el formulario siga abriendo sin conexión cuando está publicado (en archivo local no hace falta ni se puede).
   if ('serviceWorker' in navigator && /^https?:$/.test(window.location.protocol)) {
