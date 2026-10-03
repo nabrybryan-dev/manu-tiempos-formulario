@@ -1,9 +1,9 @@
-/* Generado por generar_listas.py (2026-10-03T08:29:48-05:00) desde SEMANA.json (2026-W40) y PATRONES.json (PE-20261002-04). No se edita a mano:
+/* Generado por generar_listas.py (2026-10-03T18:09:42-05:00) desde SEMANA.json (2026-W40) y PATRONES.json (PE-20261002-04). No se edita a mano:
    vuelve a correr el script cuando cambie la semana o los patrones. Solo lleva colegio, grupo y llaves de patrón. */
 window.MANU_LISTAS = {
  "semana": "2026-W40",
  "corrida_patrones": "PE-20261002-04",
- "generado": "2026-10-03T08:29:48-05:00",
+ "generado": "2026-10-03T18:09:42-05:00",
  "colegios": [
   {
    "codigo": "EL-CAIRO",
@@ -46,7 +46,8 @@ window.MANU_LISTAS = {
     "PreEscolar-0-1",
     "PreEscolar-0-2",
     "Quinto-5-1",
-    "Quinto-5-2"
+    "Quinto-5-2",
+    "Once"
    ]
   },
   {

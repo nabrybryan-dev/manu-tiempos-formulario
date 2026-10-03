@@ -415,7 +415,23 @@
     var cs = (listas && listas.colegios) || [];
     var c = cs.filter(function (x) { return x.codigo === $('colegio').value; })[0];
     ((c && c.grupos) || []).forEach(function (g) { sel.appendChild(opcion(g, g)); });
-    if (c && trabajo.seleccion && trabajo.seleccion.colegio === c.codigo && c.grupos.indexOf(trabajo.seleccion.grupo) !== -1) sel.value = trabajo.seleccion.grupo;
+    // Si el grado no está en la lista, se escribe: nadie se queda sin poder anotar su trabajo porque falte un grado.
+    if (c) sel.appendChild(opcion(OTRO_GRUPO, 'Otro grado (escribirlo)'));
+    $('grupo-otro').value = '';
+    if (c && trabajo.seleccion && trabajo.seleccion.colegio === c.codigo) {
+      if (c.grupos.indexOf(trabajo.seleccion.grupo) !== -1) sel.value = trabajo.seleccion.grupo;
+      else if (trabajo.seleccion.grupo) { sel.value = OTRO_GRUPO; $('grupo-otro').value = trabajo.seleccion.grupo; }
+    }
+    mostrar('grupo-otro', sel.value === OTRO_GRUPO);
+  }
+
+  var OTRO_GRUPO = '__otro__';
+  /** El grado escogido: el de la lista o, con «Otro grado», lo escrito si tiene el formato que acepta la base. '' = falta. */
+  function grupoElegido() {
+    var v = $('grupo').value;
+    if (v !== OTRO_GRUPO) return v;
+    var t = String($('grupo-otro').value || '').replace(/\s+/g, ' ').trim();
+    return new RegExp(N.FORMATOS.grupo).test(t) ? t : '';
   }
 
   function dibujarPasos() {
@@ -447,7 +463,7 @@
 
   function escogerPaso(p) {
     var colegio = panelModo === 'paso' && trabajo.seleccion ? trabajo.seleccion.colegio : $('colegio').value;
-    var grupo = panelModo === 'paso' && trabajo.seleccion ? trabajo.seleccion.grupo : $('grupo').value;
+    var grupo = panelModo === 'paso' && trabajo.seleccion ? trabajo.seleccion.grupo : grupoElegido();
     if (!colegio || !grupo) { aviso('jornada-error', 'Escoge primero el colegio y el grado o grupo.'); return; }
     aviso('jornada-error', '');
     aplicarSeleccion({ colegio: colegio, grupo: grupo, paso: p });
@@ -455,9 +471,18 @@
 
   $('colegio').addEventListener('change', function () { poblarGrupos(); });
   $('grupo').addEventListener('change', function () {
-    if (panelModo === 'grupo' && trabajo.seleccion && $('colegio').value && $('grupo').value) {
-      aplicarSeleccion({ colegio: $('colegio').value, grupo: $('grupo').value, paso: trabajo.seleccion.paso });
+    mostrar('grupo-otro', $('grupo').value === OTRO_GRUPO);
+    if ($('grupo').value === OTRO_GRUPO) { $('grupo-otro').focus(); return; }
+    if (panelModo === 'grupo' && trabajo.seleccion && $('colegio').value && grupoElegido()) {
+      aplicarSeleccion({ colegio: $('colegio').value, grupo: grupoElegido(), paso: trabajo.seleccion.paso });
     }
+  });
+  // Con «Otro grado» y solo cambiando de grado, lo escrito se aplica al salir de la casilla o con Entrar.
+  $('grupo-otro').addEventListener('change', function () {
+    if (panelModo === 'grupo' && trabajo.seleccion && $('colegio').value && grupoElegido()) {
+      aplicarSeleccion({ colegio: $('colegio').value, grupo: grupoElegido(), paso: trabajo.seleccion.paso });
+    } else if (!grupoElegido()) aviso('jornada-error', 'Escribe el grado con letras, números, espacios, puntos o guiones (máximo 30).');
+    else aviso('jornada-error', '');
   });
   $('cambiar-grupo').addEventListener('click', function () { abrirPanel(trabajo.seleccion ? 'grupo' : 'todo'); });
   $('cambiar-paso').addEventListener('click', function () { abrirPanel(trabajo.seleccion ? 'paso' : 'todo'); });
