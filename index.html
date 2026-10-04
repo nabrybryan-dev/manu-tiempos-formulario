@@ -131,6 +131,17 @@
         <button id="siguiente-foto" type="button" class="grande principal gigante">Siguiente foto</button>
         <p id="foto-ayuda" class="ayuda"></p>
 
+        <!-- Solo en el paso Licuado, sobre la foto que se acaba de cerrar. No bloquea nada: saltarla deja la foto «sin contestar». -->
+        <div id="encuesta-licuado" class="encuesta" role="group" aria-labelledby="enc-pregunta" hidden>
+          <p id="enc-pregunta" class="enc-pregunta">¿Qué le licuaste a la foto que acabas de terminar?</p>
+          <div id="enc-zonas" class="enc-rejilla" role="group" aria-label="Zonas que licuaste"></div>
+          <button id="enc-nada" type="button" class="paso enc-nada">Nada: no lo necesitaba</button>
+          <p id="enc-cuanto-titulo" class="enc-pregunta">¿Cuánto?</p>
+          <div id="enc-cuanto" class="enc-rejilla enc-tres" role="group" aria-label="Cuánto licuaste"></div>
+          <p id="enc-ayuda" class="ayuda">Marca una o más zonas y toca cuánto. Si no quieres contestar, sigue con la siguiente foto: no pasa nada.</p>
+        </div>
+        <p id="enc-gracias" class="ayuda" role="status" hidden>Anotado. Gracias.</p>
+
         <fieldset id="bloque-motivo" class="motivo">
           <legend>¿La hiciste a mano por una razón? <span class="opcional">(opcional, un toque)</span></legend>
           <div id="motivos" class="chips" role="radiogroup" aria-label="Por qué fue a mano"></div>

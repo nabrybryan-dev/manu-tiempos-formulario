@@ -84,6 +84,12 @@
     lista.forEach(function (r) {
       r.id_cliente = N.nuevoIdCliente(aleatorio);
       var v = N.validarRegistro(r, hoy);
+      // La encuesta de licuado nunca impide que el registro salga: si la nota es lo que falla, se manda sin la encuesta.
+      if (!v.ok && v.motivo === 'nota') {
+        var sinEnc = J.sinNotaDeEncuesta(r.nota);
+        if (sinEnc) r.nota = sinEnc; else delete r.nota;
+        v = N.validarRegistro(r, hoy);
+      }
       if (!v.ok) {
         cola.rechazar([{ reg: r, motivo: v.motivo, mensaje: N.mensajeDe(v.motivo), en: N.bogotaIso(ahoraSrv()) }]);
         return;
@@ -586,6 +592,62 @@
     $('cambiar-grupo').disabled = false;
     $('cambiar-paso').disabled = false;
     poblarMotivos();
+    dibujarEncuesta();
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // Encuesta de licuado: solo en el paso Licuado, sobre la foto recién terminada. Dos toques (zonas y cuánto) o uno (Nada).
+  // Nunca bloquea: si algo falla aquí, la encuesta se descarta y el trabajo y los registros siguen como siempre.
+  // ---------------------------------------------------------------------------------------------------------------
+  function dibujarEncuesta() {
+    try {
+      var activa = J.encuestaActiva(trabajo);
+      mostrar('encuesta-licuado', activa);
+      mostrar('enc-gracias', !!(trabajo.encuesta && trabajo.encuesta.hecha === true && trabajo.seleccion && trabajo.seleccion.paso === 'licuado'));
+      if (!activa) return;
+      var sel = trabajo.encuesta.sel;
+      var zonas = $('enc-zonas');
+      limpiarHijos(zonas);
+      J.ZONAS_LICUADO.forEach(function (z) {
+        var puesta = sel.indexOf(z.clave) !== -1;
+        var b = nodo('button', 'paso enc-zona' + (puesta ? ' activo' : ''), z.texto);
+        b.type = 'button';
+        b.setAttribute('aria-pressed', puesta ? 'true' : 'false');
+        b.setAttribute('data-zona', z.clave);
+        b.addEventListener('click', function () { tocarEncuesta(function () { trabajo = J.encuestaMarcar(trabajo, z.clave); return []; }); });
+        zonas.appendChild(b);
+      });
+      var cuanto = $('enc-cuanto');
+      limpiarHijos(cuanto);
+      J.CUANTOS_LICUADO.forEach(function (c) {
+        var b = nodo('button', 'paso enc-cuanto-boton', c.texto);
+        b.type = 'button';
+        b.setAttribute('data-cuanto', c.clave);
+        b.disabled = sel.length === 0;
+        b.addEventListener('click', function () {
+          tocarEncuesta(function () { var r = J.encuestaCuanto(trabajo, c.clave); trabajo = r.t; return r.registros; });
+        });
+        cuanto.appendChild(b);
+      });
+    } catch (e) { descartarEncuesta(); }
+  }
+
+  $('enc-nada').addEventListener('click', function () {
+    tocarEncuesta(function () { var r = J.encuestaNada(trabajo); trabajo = r.t; return r.registros; });
+  });
+
+  function tocarEncuesta(hacer) {
+    try {
+      var registros = hacer();
+      guardarTrabajo();
+      guardarRegistros(registros);
+      dibujarEncuesta();
+      dibujarHoy();
+    } catch (e) { descartarEncuesta(); }
+  }
+
+  function descartarEncuesta() {
+    try { trabajo.encuesta = null; guardarTrabajo(); mostrar('encuesta-licuado', false); mostrar('enc-gracias', false); } catch (e) { /* la encuesta no es lo importante */ }
   }
 
   // ---------------------------------------------------------------------------------------------------------------

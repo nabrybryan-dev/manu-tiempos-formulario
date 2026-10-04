@@ -21,6 +21,20 @@
   // Los pasos que se escogen para trabajar (otra actividad se anota como pausa, no como paso de una foto).
   var PASOS_DE_FOTO = ['encuadre', 'fondo', 'motas', 'piel', 'granos', 'licuado', 'decoracion', 'revision'];
 
+  // La encuesta de licuado (Bryan, 3-oct): solo anota lo que la persona hizo con Licuar. Licuar es SIEMPRE manual (R-16): esto no automatiza nada.
+  // Las zonas son las que Manuela dice que se corrigen con Licuar (PIE-039). `cod` es la abreviatura que viaja en la nota del registro.
+  var ZONAS_LICUADO = [
+    { clave: 'cintura', cod: 'ci', texto: 'Cintura' }, { clave: 'gluteo', cod: 'gl', texto: 'Glúteo' },
+    { clave: 'senos', cod: 'se', texto: 'Senos' }, { clave: 'postura', cod: 'po', texto: 'Postura' },
+    { clave: 'asimetria', cod: 'as', texto: 'Asimetría del cuerpo' }, { clave: 'facciones', cod: 'fa', texto: 'Facciones' },
+    { clave: 'otra', cod: 'ot', texto: 'Otra cosa' }
+  ];
+  var CUANTOS_LICUADO = [{ clave: 'poco', cod: 'p', texto: 'Poco' }, { clave: 'medio', cod: 'm', texto: 'Medio' }, { clave: 'bastante', cod: 'b', texto: 'Bastante' }];
+  var MARCA_ENCUESTA = 'LIC1';
+  // Orden fijo de la nota: LIC1 f<fotos> ci gl se po as fa ot na sc p m b (na = «nada», sc = sin contestar).
+  var CODIGOS_LIC = ['ci', 'gl', 'se', 'po', 'as', 'fa', 'ot', 'na', 'sc', 'p', 'm', 'b'];
+  var CODIGOS_ZONA = ['ci', 'gl', 'se', 'po', 'as', 'fa', 'ot'];
+
   var CLAVES = { servidor: 'manu.v2.servidor', jornada: 'manu.v2.jornada', plan: 'manu.v2.plan', trabajo: 'manu.v2.trabajo' };
 
   // Los mismos textos que da el servidor (MENSAJES en validar.ts): una prueba compara los dos.
@@ -126,7 +140,7 @@
   //   seleccion {colegio, grupo, paso}  ·  etiqueta {motivo, patron} (de la foto en curso)  ·  foto {inicioMs, pausaMs}
   //   bloque {clave, colegio, grupo, paso, motivo, patron, fotos, ms, inicioMs, finMs}  ·  pausaDesdeMs
   // ------------------------------------------------------------------------------------------------------------------
-  function trabajoNuevo() { return { seleccion: null, etiqueta: { motivo: null, patron: null }, foto: null, bloque: null, pausaDesdeMs: null }; }
+  function trabajoNuevo() { return { seleccion: null, etiqueta: { motivo: null, patron: null }, foto: null, bloque: null, pausaDesdeMs: null, encuesta: null }; }
 
   function copia(x) { return JSON.parse(JSON.stringify(x)); }
   function claveDeBloque(s, e) { return [s.colegio, s.grupo, s.paso, e.motivo || '', e.patron || ''].join('|'); }
@@ -150,16 +164,67 @@
     var r = { dia: ini.dia, minutos: minutos, colegio: b.colegio, grupo: b.grupo, paso: b.paso, fotos_terminadas: b.fotos };
     if (conHoras) { r.inicio = ini.hora; r.fin = fin.hora; }
     if (b.patron) { r.patron = b.patron; r.motivo_manual = 'bloqueada_por_patron'; } else if (b.motivo) r.motivo_manual = b.motivo;
-    if (nota) r.nota = nota;
+    // La encuesta de licuado va al final de la nota. Si algo falla al armarla, el registro sale igual, sin ella.
+    var enc = null;
+    try { enc = notaDeEncuesta(b); } catch (e) { enc = null; }
+    var notaFinal = componerNota(nota, enc);
+    if (notaFinal) r.nota = notaFinal;
     return r;
   }
   function LIMITES_NUCLEO() { return N.LIMITES; }
+
+  // ------------------------------------------------------------------------------------------------------------------
+  // La nota de la encuesta de licuado. Formato fijo y compacto: «LIC1 f8 ci3 gl0 se1 po2 as0 fa1 ot0 na4 sc1 p3 m2 b0».
+  // La nota que ya existía (hoy solo el aviso «recortado al tope…»; el formulario no tiene casilla de nota libre) va primero
+  // y la encuesta al final, separadas por un espacio.
+  // ------------------------------------------------------------------------------------------------------------------
+  function esEntero(x) { return typeof x === 'number' && isFinite(x) && Math.floor(x) === x && x >= 0; }
+
+  function licNueva(sinPreguntar) {
+    var l = {};
+    CODIGOS_LIC.forEach(function (c) { l[c] = 0; });
+    l.sc = sinPreguntar > 0 ? sinPreguntar : 0;
+    return l;
+  }
+
+  // null si el bloque no es de licuado o si las cuentas no cuadran: entonces el registro sale sin encuesta, nunca con cuentas dudosas.
+  function notaDeEncuesta(b) {
+    if (!b || !b.lic || typeof b.lic !== 'object' || b.paso !== 'licuado' || !esEntero(b.fotos)) return null;
+    var l = b.lic;
+    var i;
+    for (i = 0; i < CODIGOS_LIC.length; i++) { if (!esEntero(l[CODIGOS_LIC[i]])) return null; }
+    var conZonas = l.p + l.m + l.b;
+    if (l.na + l.sc + conZonas !== b.fotos) return null;
+    var suma = 0;
+    for (i = 0; i < CODIGOS_ZONA.length; i++) { if (l[CODIGOS_ZONA[i]] > conZonas) return null; suma += l[CODIGOS_ZONA[i]]; }
+    if (suma < conZonas) return null; // cada foto con licuado marcó al menos una zona
+    var partes = [MARCA_ENCUESTA, 'f' + b.fotos];
+    CODIGOS_LIC.forEach(function (c) { partes.push(c + l[c]); });
+    return partes.join(' ');
+  }
+
+  // Une la nota que ya había con la de la encuesta sin pasar nunca del tope de la base; si no cabe, sale sin la encuesta.
+  function componerNota(base, encuesta) {
+    var t = typeof base === 'string' ? base : '';
+    if (!encuesta) return t || null;
+    var junta = t ? t + ' ' + encuesta : encuesta;
+    return junta.length <= N.LIMITES.notaMax ? junta : (t || null);
+  }
+
+  // Lo que queda de una nota cuando se le quita la encuesta (por si la base la rechazara).
+  function sinNotaDeEncuesta(nota) {
+    if (typeof nota !== 'string') return null;
+    var t = nota.replace(/(^| )LIC1( [a-z]+[0-9]+)+/, '').replace(/^ +| +$/g, '');
+    return t === '' ? null : t;
+  }
 
   // Cierra la foto en curso (cuenta como terminada) y la suma al bloque; si el bloque cambia de clave o se llena, lo entrega.
   function cerrarFoto(t, ahoraMs) {
     var n = copia(t);
     var registros = [];
     if (!n.foto || !n.seleccion) { n.foto = null; return { t: n, registros: registros }; }
+    // Un bloque de licuado que se llenó con la foto anterior esperó a que se contestara o se saltara la encuesta: sale ahora.
+    if (n.bloque && n.bloque.lleno) { registros.push(registroDeBloque(n.bloque)); n.bloque = null; n.encuesta = null; }
     var ms = msDeFoto(n, ahoraMs);
     // Una foto que duró menos que un toque doble (por ejemplo, la que se abrió justo antes de cambiar de paso) no se cuenta.
     if (ms < LIMITES.minFotoMs) { n.foto = null; n.etiqueta = { motivo: null, patron: null }; return { t: n, registros: registros }; }
@@ -169,18 +234,75 @@
     if (!n.bloque) {
       n.bloque = { clave: k, colegio: n.seleccion.colegio, grupo: n.seleccion.grupo, paso: n.seleccion.paso, motivo: n.etiqueta.motivo || null,
         patron: n.etiqueta.patron || null, fotos: 0, ms: 0, inicioMs: n.foto.inicioMs, finMs: fin };
+      if (n.seleccion.paso === 'licuado') n.bloque.lic = licNueva(0);
     }
     n.bloque.fotos += 1;
     n.bloque.ms += ms;
     n.bloque.finMs = fin;
     n.foto = null;
     n.etiqueta = { motivo: null, patron: null }; // el motivo es de UNA foto: la siguiente empieza sin él
-    if (n.bloque.fotos >= LIMITES.bloqueMaxFotos) { registros.push(registroDeBloque(n.bloque)); n.bloque = null; }
+    n.encuesta = null;
+    if (n.bloque.paso === 'licuado') {
+      // La foto que se acaba de cerrar queda «sin contestar» hasta que la persona conteste; la encuesta se le ofrece sobre ella.
+      if (!n.bloque.lic) n.bloque.lic = licNueva(n.bloque.fotos - 1); // un bloque guardado antes de existir la encuesta
+      n.bloque.lic.sc += 1;
+      n.encuesta = { sel: [], hecha: false };
+    }
+    if (n.bloque.fotos >= LIMITES.bloqueMaxFotos) {
+      if (n.bloque.lic) n.bloque.lleno = true; // espera a la respuesta (o a que la salten) para salir con las cuentas completas
+      else { registros.push(registroDeBloque(n.bloque)); n.bloque = null; }
+    }
     return { t: n, registros: registros };
   }
 
   function volcarBloque(n, registros) {
     if (n.bloque) { registros.push(registroDeBloque(n.bloque)); n.bloque = null; }
+    n.encuesta = null; // una encuesta sin contestar no cruza un cambio de paso, una pausa ni el cierre: esa foto queda «sin contestar»
+  }
+
+  // ------------------------------------------------------------------------------------------------------------------
+  // La encuesta de licuado de la foto recién terminada. Estado en `t.encuesta` = { sel: [claves de zona], hecha }.
+  // Dos toques: una o más zonas y luego «Cuánto» (o un solo toque en «Nada»). Saltarse la tarjeta deja la foto «sin contestar».
+  // ------------------------------------------------------------------------------------------------------------------
+  function encuestaActiva(t) { return !!(t && t.encuesta && t.encuesta.hecha !== true && t.bloque && t.bloque.lic); }
+
+  function encuestaMarcar(t, claveZona) {
+    if (!encuestaActiva(t)) return t;
+    if (!ZONAS_LICUADO.some(function (z) { return z.clave === claveZona; })) return t;
+    var n = copia(t);
+    var i = n.encuesta.sel.indexOf(claveZona);
+    if (i === -1) n.encuesta.sel.push(claveZona); else n.encuesta.sel.splice(i, 1);
+    return n;
+  }
+
+  // Pasa la foto de «sin contestar» a contestada y, si el bloque ya estaba lleno, lo entrega.
+  function cerrarEncuesta(n, cambios) {
+    var l = n.bloque.lic;
+    var registros = [];
+    if (l.sc < 1) { n.encuesta = null; return { t: n, registros: registros }; } // no hay foto pendiente: nada que contar dos veces
+    l.sc -= 1;
+    Object.keys(cambios).forEach(function (c) { l[c] += cambios[c]; });
+    n.encuesta = { sel: [], hecha: true };
+    if (n.bloque.lleno) { registros.push(registroDeBloque(n.bloque)); n.bloque = null; }
+    return { t: n, registros: registros };
+  }
+
+  // «Cuánto»: guarda las zonas marcadas con poco, medio o bastante. Sin ninguna zona marcada no hace nada.
+  function encuestaCuanto(t, claveCuanto) {
+    if (!encuestaActiva(t) || !t.encuesta.sel.length) return { t: t, registros: [] };
+    var cuanto = CUANTOS_LICUADO.filter(function (c) { return c.clave === claveCuanto; })[0];
+    if (!cuanto) return { t: t, registros: [] };
+    var n = copia(t);
+    var cambios = {};
+    cambios[cuanto.cod] = 1;
+    ZONAS_LICUADO.forEach(function (z) { if (n.encuesta.sel.indexOf(z.clave) !== -1) cambios[z.cod] = 1; });
+    return cerrarEncuesta(n, cambios);
+  }
+
+  // «Nada: no lo necesitaba»: excluye las zonas que hubiera marcado y no pregunta cuánto.
+  function encuestaNada(t) {
+    if (!encuestaActiva(t)) return { t: t, registros: [] };
+    return cerrarEncuesta(copia(t), { na: 1 });
   }
 
   // El botón grande. Cierra la foto anterior con sus minutos y abre la siguiente. Dos toques casi seguidos cuentan como uno.
@@ -332,6 +454,9 @@
     trabajoNuevo: trabajoNuevo, msDeFoto: msDeFoto, siguienteFoto: siguienteFoto, elegir: elegir, ponerEtiqueta: ponerEtiqueta,
     iniciarPausa: iniciarPausa, terminarPausa: terminarPausa, cerrarTodo: cerrarTodo, fotosDelBloque: fotosDelBloque, conciliar: conciliar,
     registroDeBloque: registroDeBloque,
+    ZONAS_LICUADO: ZONAS_LICUADO, CUANTOS_LICUADO: CUANTOS_LICUADO, MARCA_ENCUESTA: MARCA_ENCUESTA, CODIGOS_LIC: CODIGOS_LIC,
+    encuestaActiva: encuestaActiva, encuestaMarcar: encuestaMarcar, encuestaCuanto: encuestaCuanto, encuestaNada: encuestaNada,
+    notaDeEncuesta: notaDeEncuesta, componerNota: componerNota, sinNotaDeEncuesta: sinNotaDeEncuesta,
     guardarDe: guardarDe, leerDe: leerDe, olvidarDe: olvidarDe, llamar: llamar, tareasDelPlan: tareasDelPlan, pasosDelPlan: pasosDelPlan
   };
 });

@@ -2,7 +2,7 @@
    Solo se registra cuando el formulario está publicado (https); abierto como archivo local no lo usa.
    NO toca los envíos: las peticiones a otra dirección (la función manu-registrar) pasan directo, sin caché.
    Al cambiar cualquier archivo de la lista, sube el número de VERSION para que los equipos recojan la versión nueva. */
-var VERSION = 'manu-tiempos-v4';
+var VERSION = 'manu-tiempos-v5';
 var ARCHIVOS = ['./', 'index.html', 'estilo.css', 'config.js', 'listas.js', 'nucleo.js', 'jornada.js', 'app.js'];
 
 self.addEventListener('install', function (ev) {

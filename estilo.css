@@ -195,3 +195,12 @@ button.paso.del-plan { border-width: 3px; }
   .jornada .reloj { font-size: 3.2rem; }
   button.gigante { min-height: 5.5rem; font-size: 1.5rem; }
 }
+
+/* ---- Encuesta de licuado (sobre la foto recién terminada; solo en el paso Licuado) ---- */
+.encuesta { margin-top: 0.8rem; padding: 0.6rem 0.7rem; background: #f7f5ef; border: 2px solid var(--marca); border-radius: 10px; }
+.enc-pregunta { margin: 0 0 0.5rem; font-weight: 700; }
+.enc-rejilla { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; margin-bottom: 0.5rem; }
+.enc-rejilla.enc-tres { grid-template-columns: repeat(3, 1fr); }
+.encuesta button.paso { min-height: 3rem; font-size: 0.95rem; padding: 0.3rem 0.5rem; }
+.encuesta button.paso.enc-nada { width: 100%; border-style: dashed; margin-bottom: 0.6rem; }
+.encuesta button.paso[aria-pressed="true"] { background: var(--marca); color: #fff; border-color: var(--marca-oscura); }
