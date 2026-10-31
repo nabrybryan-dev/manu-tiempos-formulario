@@ -17,7 +17,7 @@
   var MOTIVOS_PAUSA = ['almuerzo', 'bano', 'otra_actividad'];
   var ETIQUETAS_PAUSA = { almuerzo: 'Almuerzo', bano: 'Baño', otra_actividad: 'Otra actividad' };
   var ACCIONES = ['iniciar_jornada', 'pausa', 'cerrar_jornada', 'pedir_plan'];
-  var LIMITES = { jornadaMaxHoras: 12, bloqueMaxFotos: 10, minFotoMs: 3000, diasAtrasPlan: 7 };
+  var LIMITES = { jornadaMaxHoras: 12, bloqueMaxFotos: 1, minFotoMs: 3000, diasAtrasPlan: 7 };
   // Los pasos que se escogen para trabajar (otra actividad se anota como pausa, no como paso de una foto).
   var PASOS_DE_FOTO = ['encuadre', 'fondo', 'motas', 'piel', 'granos', 'licuado', 'decoracion', 'revision'];
 
