@@ -30,7 +30,7 @@
       <h2>Primera vez en este equipo</h2>
       <div class="aviso">
         <p><strong>Tus tiempos los ven Manuela y Bryan para medir cuántas fotos salen por hora.</strong></p>
-        <p>Se registra tu jornada (la hora en que la inicias y la hora en que la cierras, las dos según el reloj del servidor), tus pausas con su motivo (almuerzo, baño u otra actividad) y el tiempo de almuerzo y, por cada bloque de fotos, el colegio, el grupo, el paso, los minutos y las fotos terminadas. La jornada no se puede pausar ni borrar. La única salida que detiene el reloj es «Salir a almorzar», una sola vez al día, con la hora del servidor al salir y al volver; ese tiempo no cuenta en tus 8 horas y queda guardado aparte. Las demás pausas (baño, otra actividad) se anotan y el reloj sigue. Si sales a almorzar y no vuelves, el sistema cierra la jornada. Al cerrar la jornada al final del día no se vuelve a abrir. Lo que anotas es lo que tú declaras. Si quieres que borren tus datos, díselo a Manuela.</p>
+        <p>Se registra tu jornada (la hora en que la inicias y la hora en que la cierras, las dos según el reloj del servidor), tus pausas con su motivo (almuerzo, baño u otra actividad) y el tiempo de almuerzo y, por cada bloque de fotos, el colegio, el grupo, el paso (y, en Fondo, qué parte del fondo fue), los minutos y las fotos terminadas. La jornada no se puede pausar ni borrar. La única salida que detiene el reloj es «Salir a almorzar», una sola vez al día, con la hora del servidor al salir y al volver; ese tiempo no cuenta en tus 8 horas y queda guardado aparte. Las demás pausas (baño, otra actividad) se anotan y el reloj sigue. Si sales a almorzar y no vuelves, el sistema cierra la jornada. Al cerrar la jornada al final del día no se vuelve a abrir. Lo que anotas es lo que tú declaras. Si quieres que borren tus datos, díselo a Manuela.</p>
         <p>No escribas nombres de estudiantes en ninguna parte.</p>
       </div>
       <form id="form-entrada" autocomplete="off" novalidate>
@@ -99,6 +99,18 @@
         </details>
       </section>
 
+      <!-- Tres preguntas de encuadre de cuerpo entero (B-2026-10-03-18). Solo sale si el plan de la persona las trae; una vez, hasta que se
+           contestan. «Ahora no» no bloquea nada y vuelve a ofrecerse la próxima vez. Sin campos de texto. -->
+      <section id="encuesta-cuerpo-entero" class="tarjeta encuesta" aria-labelledby="ce-titulo" hidden>
+        <h2 id="ce-titulo">Tres preguntas sobre las fotos de cuerpo entero</h2>
+        <p class="ayuda">Un toque por pregunta. Tus respuestas le dicen al sistema cómo encuadrar estas fotos.</p>
+        <div id="ce-preguntas"></div>
+        <p id="ce-restante" class="ayuda" role="status" hidden></p>
+        <button id="ce-listo" type="button" class="grande principal" disabled>Listo</button>
+        <button id="ce-ahora-no" type="button" class="chico">Ahora no</button>
+      </section>
+      <p id="ce-gracias" class="ayuda" role="status" hidden>Anotado. Gracias.</p>
+
       <!-- 3. El trabajo: un solo botón grande -->
       <section id="tarjeta-foto" class="tarjeta foto" aria-labelledby="t-foto">
         <h2 id="t-foto">Fotos</h2>
@@ -122,6 +134,12 @@
             <div id="pasos" class="pasos" role="radiogroup" aria-label="Paso"></div>
           </fieldset>
         </div>
+
+        <!-- Solo con el paso Fondo. Siempre hay una escogida («Varias» por omisión): no bloquea nada y se puede cambiar con un toque. -->
+        <fieldset id="bloque-subtarea" class="motivo" hidden>
+          <legend>¿Qué parte del fondo? <span class="opcional">(un toque; si no sabes, déjalo en «Varias»)</span></legend>
+          <div id="subtareas" class="pasos" role="radiogroup" aria-label="Parte del fondo"></div>
+        </fieldset>
 
         <div id="foto-contador" class="foto-contador">
           <div id="foto-reloj" class="reloj foto-reloj" role="timer" aria-live="off">00:00</div>

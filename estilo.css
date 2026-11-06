@@ -204,3 +204,9 @@ button.paso.del-plan { border-width: 3px; }
 .encuesta button.paso { min-height: 3rem; font-size: 0.95rem; padding: 0.3rem 0.5rem; }
 .encuesta button.paso.enc-nada { width: 100%; border-style: dashed; margin-bottom: 0.6rem; }
 .encuesta button.paso[aria-pressed="true"] { background: var(--marca); color: #fff; border-color: var(--marca-oscura); }
+/* Tres preguntas de cuerpo entero: las opciones van una debajo de otra (los textos son largos). */
+.enc-rejilla.ce-opciones { grid-template-columns: 1fr; }
+.ce-detalle { margin: 0 0 0.6rem; }
+.ce-detalle label { display: block; font-weight: 600; margin-bottom: 0.25rem; }
+.ce-detalle input { width: 100%; box-sizing: border-box; }
+#encuesta-cuerpo-entero button.chico { width: 100%; margin-top: 0.5rem; }

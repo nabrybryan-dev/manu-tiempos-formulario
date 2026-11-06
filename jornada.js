@@ -35,7 +35,25 @@
   var CODIGOS_LIC = ['ci', 'gl', 'se', 'po', 'as', 'fa', 'ot', 'na', 'sc', 'p', 'm', 'b'];
   var CODIGOS_ZONA = ['ci', 'gl', 'se', 'po', 'as', 'fa', 'ot'];
 
-  var CLAVES = { servidor: 'manu.v2.servidor', jornada: 'manu.v2.jornada', plan: 'manu.v2.plan', trabajo: 'manu.v2.trabajo' };
+  // Las tres preguntas de cuerpo entero para Manuela (Bryan, B-2026-10-03-18). Los textos son los del documento
+  // seguimiento/estado/PREGUNTAS-MANUELA-CUERPO-ENTERO.md, sin cambiar su sentido. Solo se le ofrece a quien el PLAN que entrega
+  // el servidor marque con encuestas: ['cuerpo_entero'] (el alias de nadie va en este archivo público). Nada de texto libre:
+  // «Ninguna sirve» es la salida de «si ninguna sirve, escribir cómo es» (eso se lo cuenta a Bryan, no se escribe aquí).
+  // Detalle opcional (ajuste de Bryan): un campo corto en q2«Sí (contar en qué)», q3«A veces… (contar cuándo)» y «Ninguna sirve».
+  // `campo` es el rótulo del campo. Entre los tres campos comparten TEXTO_CE_MAX caracteres, para que la nota quepa en el tope de 120.
+  var TEXTO_CE_MAX = 40;
+  var NINGUNA_CE = { cod: 'x', texto: 'Ninguna sirve.', campo: '¿Cómo es?' };
+  var PREGUNTAS_CE = [
+    { id: 'q1', texto: 'Una foto de cuerpo entero que ya trae completos el birrete, las manos, los pies y la decoración, ¿se puede dejar con el encuadre de cámara y pasar al fondo?',
+      opciones: [{ cod: 'a', texto: 'Sí.' }, { cod: 'b', texto: 'Sí, pero solo si no se ve pared ni piso.' }, { cod: 'c', texto: 'No: siempre la cierro un poco.' }, NINGUNA_CE] },
+    { id: 'q2', texto: '¿De pie y sentado se cuadran distinto?',
+      opciones: [{ cod: 'a', texto: 'Sí (contar en qué).', campo: '¿En qué?' }, { cod: 'b', texto: 'No.' }, NINGUNA_CE] },
+    { id: 'q3', texto: '¿Dejas alguna foto inclinada a propósito, o siempre la nivelas?',
+      opciones: [{ cod: 'a', texto: 'Siempre la nivelo.' }, { cod: 'b', texto: 'A veces la dejo inclinada (contar cuándo).', campo: '¿Cuándo?' }, NINGUNA_CE] }
+  ];
+  var MARCA_CE = 'CE1';
+
+  var CLAVES = { servidor: 'manu.v2.servidor', jornada: 'manu.v2.jornada', plan: 'manu.v2.plan', trabajo: 'manu.v2.trabajo', cuerpo: 'manu.v2.cuerpo' };
 
   // Los mismos textos que da el servidor (MENSAJES en validar.ts): una prueba compara los dos.
   var MENSAJES = {
@@ -143,7 +161,12 @@
   function trabajoNuevo() { return { seleccion: null, etiqueta: { motivo: null, patron: null }, foto: null, bloque: null, pausaDesdeMs: null, encuesta: null }; }
 
   function copia(x) { return JSON.parse(JSON.stringify(x)); }
-  function claveDeBloque(s, e) { return [s.colegio, s.grupo, s.paso, e.motivo || '', e.patron || ''].join('|'); }
+  // La parte del fondo (versión 3): solo existe dentro del paso fondo. Sin escoger, o con algo que no está en la lista, es «varias».
+  function subtareaDe(s) {
+    if (!s || s.paso !== 'fondo') return null;
+    return N.SUBTAREAS_FONDO.indexOf(s.subtarea) !== -1 ? s.subtarea : N.SUBTAREA_POR_OMISION;
+  }
+  function claveDeBloque(s, e) { return [s.colegio, s.grupo, s.paso, subtareaDe(s) || '', e.motivo || '', e.patron || ''].join('|'); }
 
   // Los minutos de la foto en curso: desde que se abrió, sin las pausas.
   function msDeFoto(t, ahoraMs) {
@@ -162,6 +185,7 @@
     var span = aMinutos(fin.hora) - aMinutos(ini.hora);
     var conHoras = ini.dia === fin.dia && span > 0 && minutos <= span + LIMITES_NUCLEO().toleranciaMin;
     var r = { dia: ini.dia, minutos: minutos, colegio: b.colegio, grupo: b.grupo, paso: b.paso, fotos_terminadas: b.fotos };
+    if (b.paso === 'fondo') r.subtarea = subtareaDe(b);
     if (conHoras) { r.inicio = ini.hora; r.fin = fin.hora; }
     if (b.patron) { r.patron = b.patron; r.motivo_manual = 'bloqueada_por_patron'; } else if (b.motivo) r.motivo_manual = b.motivo;
     // La encuesta de licuado va al final de la nota. Si algo falla al armarla, el registro sale igual, sin ella.
@@ -218,6 +242,105 @@
     return t === '' ? null : t;
   }
 
+  // ------------------------------------------------------------------------------------------------------------------
+  // Las tres preguntas de cuerpo entero (CE1). `guardado` = { resp: {q1,q2,q3} | null, enviada }; `saltada` = «ahora no» en esta visita.
+  // La respuesta viaja en la nota del primer registro que salga después de contestar: «CE1 q1a q2b q3a». Va ANTES de la de
+  // licuado, porque el lector de licuado exige que su encuesta sea lo último de la nota.
+  // ------------------------------------------------------------------------------------------------------------------
+  function debeOfrecerCE(plan, guardado, saltada) {
+    if (!plan || !Array.isArray(plan.encuestas) || plan.encuestas.indexOf('cuerpo_entero') === -1) return false;
+    if (guardado && guardado.resp) return false;
+    return !saltada;
+  }
+
+  function preguntaCE(id) { return PREGUNTAS_CE.filter(function (q) { return q.id === id; })[0] || null; }
+
+  function largoCE(s) { return Array.from(s).length; }
+  function campoDeOpcion(id, cod) {
+    var q = preguntaCE(id);
+    var o = q ? q.opciones.filter(function (x) { return x.cod === cod; })[0] : null;
+    return o && o.campo ? o.campo : null;
+  }
+
+  // El detalle viaja entre llaves, así que las llaves se quitan; los saltos y los espacios repetidos se juntan en uno.
+  function limpiarTextoCE(s) {
+    return String(s === undefined || s === null ? '' : s).replace(/[{}]/g, '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').replace(/^ +| +$/g, '');
+  }
+
+  // Cuántos caracteres de detalle llevan ya las casillas, y cuántos le quedan a la casilla `id` (las demás ya gastaron los suyos).
+  function ceUsado(sel) {
+    var t = esObjeto(sel) && esObjeto(sel.t) ? sel.t : {};
+    return Object.keys(t).reduce(function (a, k) { return a + (typeof t[k] === 'string' ? largoCE(t[k]) : 0); }, 0);
+  }
+  function ceRestante(sel, id) {
+    var propio = esObjeto(sel) && esObjeto(sel.t) && typeof sel.t[id] === 'string' ? largoCE(sel.t[id]) : 0;
+    return Math.max(0, TEXTO_CE_MAX - (ceUsado(sel) - propio));
+  }
+
+  // Una opción por pregunta; cambiar de opinión reemplaza (y borra el detalle de esa pregunta). Devuelve una copia.
+  function ceMarcar(sel, id, cod) {
+    var base = esObjeto(sel) ? sel : {};
+    var q = preguntaCE(id);
+    if (!q || !q.opciones.some(function (o) { return o.cod === cod; })) return base;
+    var n = copia(base);
+    if (n[id] !== cod && esObjeto(n.t)) { delete n.t[id]; if (!Object.keys(n.t).length) delete n.t; }
+    n[id] = cod;
+    return n;
+  }
+
+  // El detalle de una pregunta: solo si la opción marcada lo pide. Lo que pase del tope compartido se corta (la pantalla ya no deja
+  // escribirlo y dice cuánto queda: aquí es la última red). Vacío lo quita.
+  function ceTexto(sel, id, texto) {
+    var base = esObjeto(sel) ? sel : {};
+    if (!campoDeOpcion(id, base[id])) return base;
+    var n = copia(base);
+    var limpio = Array.from(limpiarTextoCE(texto)).slice(0, ceRestante(n, id)).join('').replace(/ +$/, '');
+    n.t = esObjeto(n.t) ? n.t : {};
+    if (limpio) n.t[id] = limpio; else delete n.t[id];
+    if (!Object.keys(n.t).length) delete n.t;
+    return n;
+  }
+
+  function ceCompleta(sel) {
+    return esObjeto(sel) && PREGUNTAS_CE.every(function (q) { return typeof sel[q.id] === 'string' && q.opciones.some(function (o) { return o.cod === sel[q.id]; }); });
+  }
+
+  // «CE1 q1x{texto} q2a q3b{texto}». El detalle (si lo hay) va entre llaves pegadas a su ficha. Sin forma exacta o por encima del tope: null.
+  function notaDeCuerpoEntero(sel) {
+    if (!ceCompleta(sel)) return null;
+    var t = esObjeto(sel.t) ? sel.t : {};
+    if (ceUsado(sel) > TEXTO_CE_MAX) return null;
+    var partes = [MARCA_CE];
+    for (var i = 0; i < PREGUNTAS_CE.length; i++) {
+      var id = PREGUNTAS_CE[i].id;
+      var ficha = id + sel[id];
+      if (t[id] !== undefined) {
+        if (typeof t[id] !== 'string' || !campoDeOpcion(id, sel[id]) || t[id] !== limpiarTextoCE(t[id])) return null;
+        if (t[id] !== '') ficha += '{' + t[id] + '}';
+      }
+      partes.push(ficha);
+    }
+    return partes.join(' ');
+  }
+
+  // La nota con la encuesta de cuerpo entero puesta antes de la de licuado (si la hay); si no cabe en el tope, la nota queda como estaba.
+  function conCuerpoEntero(nota, sel) {
+    var base = typeof nota === 'string' ? nota : '';
+    var ce = notaDeCuerpoEntero(sel);
+    if (!ce) return base || null;
+    var i = base.search(/(^| )LIC1( [a-z]+[0-9]+)+\s*$/);
+    var junta;
+    if (i === -1) junta = base ? base + ' ' + ce : ce;
+    else { var antes = base.slice(0, i).replace(/ +$/, ''); var lic = base.slice(i).replace(/^ +/, ''); junta = (antes ? antes + ' ' : '') + ce + ' ' + lic; }
+    return junta.length <= N.LIMITES.notaMax ? junta : (base || null);
+  }
+
+  function sinCuerpoEntero(nota) {
+    if (typeof nota !== 'string') return null;
+    var t = nota.replace(/(^| )CE1( q[0-9][a-z](\{[^{}]*\})?)+(?= |$)/, '$1').replace(/ {2,}/g, ' ').replace(/^ +| +$/g, '');
+    return t === '' ? null : t;
+  }
+
   // Cierra la foto en curso (cuenta como terminada) y la suma al bloque; si el bloque cambia de clave o se llena, lo entrega.
   function cerrarFoto(t, ahoraMs) {
     var n = copia(t);
@@ -232,7 +355,7 @@
     var k = claveDeBloque(n.seleccion, n.etiqueta);
     if (n.bloque && n.bloque.clave !== k) { registros.push(registroDeBloque(n.bloque)); n.bloque = null; }
     if (!n.bloque) {
-      n.bloque = { clave: k, colegio: n.seleccion.colegio, grupo: n.seleccion.grupo, paso: n.seleccion.paso, motivo: n.etiqueta.motivo || null,
+      n.bloque = { clave: k, colegio: n.seleccion.colegio, grupo: n.seleccion.grupo, paso: n.seleccion.paso, subtarea: subtareaDe(n.seleccion), motivo: n.etiqueta.motivo || null,
         patron: n.etiqueta.patron || null, fotos: 0, ms: 0, inicioMs: n.foto.inicioMs, finMs: fin };
       if (n.seleccion.paso === 'licuado') n.bloque.lic = licNueva(0);
     }
@@ -322,16 +445,28 @@
   // Cambiar de paso o de grupo: la foto en curso queda terminada, el bloque se entrega y, si había una foto corriendo, la
   // siguiente ya queda corriendo en el paso nuevo (el cronómetro no se detiene al cambiar).
   function elegir(t, seleccion, ahoraMs) {
-    var igual = t.seleccion && t.seleccion.colegio === seleccion.colegio && t.seleccion.grupo === seleccion.grupo && t.seleccion.paso === seleccion.paso;
+    var igual = t.seleccion && t.seleccion.colegio === seleccion.colegio && t.seleccion.grupo === seleccion.grupo && t.seleccion.paso === seleccion.paso &&
+      subtareaDe(t.seleccion) === subtareaDe(seleccion);
     if (igual) return { t: t, registros: [] };
     var habiaFoto = !!t.foto;
     var r = cerrarFoto(t, ahoraMs);
     var n = r.t;
     volcarBloque(n, r.registros);
     n.seleccion = { colegio: seleccion.colegio, grupo: seleccion.grupo, paso: seleccion.paso };
+    if (seleccion.paso === 'fondo') n.seleccion.subtarea = subtareaDe(seleccion);
     n.etiqueta = { motivo: null, patron: null };
     n.foto = habiaFoto && (n.pausaDesdeMs === null || n.pausaDesdeMs === undefined) ? { inicioMs: ahoraMs, pausaMs: 0 } : null;
     return { t: n, registros: r.registros };
+  }
+
+  // Qué parte del fondo es (versión 3). No cierra la foto en curso ni entrega nada: la foto que corre se anota en la parte que esté
+  // escogida cuando termina, y las que ya estaban en el bloque quedan en la anterior (la clave del bloque cambia y sale solo).
+  // Fuera del paso fondo no hace nada.
+  function ponerSubtarea(t, subtarea) {
+    if (!t.seleccion || t.seleccion.paso !== 'fondo') return t;
+    var n = copia(t);
+    n.seleccion.subtarea = N.SUBTAREAS_FONDO.indexOf(subtarea) !== -1 ? subtarea : N.SUBTAREA_POR_OMISION;
+    return n;
   }
 
   // El motivo (por qué se hizo a mano) de la foto en curso: un toque. null lo quita.
@@ -451,12 +586,14 @@
     MOTIVOS_PAUSA: MOTIVOS_PAUSA, ETIQUETAS_PAUSA: ETIQUETAS_PAUSA, ACCIONES: ACCIONES, LIMITES: LIMITES, PASOS_DE_FOTO: PASOS_DE_FOTO,
     CLAVES: CLAVES, MENSAJES: MENSAJES, ERRORES_DE_ESTADO: ERRORES_DE_ESTADO,
     desfase: desfase, horaDelServidor: horaDelServidor, vistaJornada: vistaJornada, formatoSegundos: formatoSegundos, formatoFoto: formatoFoto, textoMeta: textoMeta,
-    trabajoNuevo: trabajoNuevo, msDeFoto: msDeFoto, siguienteFoto: siguienteFoto, elegir: elegir, ponerEtiqueta: ponerEtiqueta,
+    trabajoNuevo: trabajoNuevo, msDeFoto: msDeFoto, siguienteFoto: siguienteFoto, elegir: elegir, ponerEtiqueta: ponerEtiqueta, ponerSubtarea: ponerSubtarea,
     iniciarPausa: iniciarPausa, terminarPausa: terminarPausa, cerrarTodo: cerrarTodo, fotosDelBloque: fotosDelBloque, conciliar: conciliar,
-    registroDeBloque: registroDeBloque,
+    registroDeBloque: registroDeBloque, subtareaDe: subtareaDe,
     ZONAS_LICUADO: ZONAS_LICUADO, CUANTOS_LICUADO: CUANTOS_LICUADO, MARCA_ENCUESTA: MARCA_ENCUESTA, CODIGOS_LIC: CODIGOS_LIC,
     encuestaActiva: encuestaActiva, encuestaMarcar: encuestaMarcar, encuestaCuanto: encuestaCuanto, encuestaNada: encuestaNada,
     notaDeEncuesta: notaDeEncuesta, componerNota: componerNota, sinNotaDeEncuesta: sinNotaDeEncuesta,
+    PREGUNTAS_CE: PREGUNTAS_CE, MARCA_CE: MARCA_CE, debeOfrecerCE: debeOfrecerCE, ceMarcar: ceMarcar, ceTexto: ceTexto, ceUsado: ceUsado, ceRestante: ceRestante, TEXTO_CE_MAX: TEXTO_CE_MAX, limpiarTextoCE: limpiarTextoCE, ceCompleta: ceCompleta,
+    notaDeCuerpoEntero: notaDeCuerpoEntero, conCuerpoEntero: conCuerpoEntero, sinCuerpoEntero: sinCuerpoEntero,
     guardarDe: guardarDe, leerDe: leerDe, olvidarDe: olvidarDe, llamar: llamar, tareasDelPlan: tareasDelPlan, pasosDelPlan: pasosDelPlan
   };
 });

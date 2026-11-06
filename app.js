@@ -35,6 +35,11 @@
   var pidiendo = false;        // hay una llamada de jornada en vuelo
   var confirmandoCierre = null;
   var ultimaSincronia = 0;
+  // Las tres preguntas de cuerpo entero (solo si el plan las trae). `cuerpo` = lo contestado y guardado en este equipo;
+  // `cuerpoSel` = lo marcado y aún no entregado; `cuerpoSaltada` = «Ahora no» (dura hasta recargar la página: la próxima vez vuelve).
+  var cuerpo = { resp: null, enviada: false };
+  var cuerpoSel = {};
+  var cuerpoSaltada = false;
 
   var enviando = false;
   var fallos = 0;
@@ -64,6 +69,7 @@
   // ---------------------------------------------------------------------------------------------------------------
   function guardarTrabajo() { if (sesion) J.guardarDe(almacen, J.CLAVES.trabajo, sesion.alias, trabajo); }
   function guardarJornada() { if (sesion) J.guardarDe(almacen, J.CLAVES.jornada, sesion.alias, jornada); }
+  function guardarCuerpo() { if (sesion) J.guardarDe(almacen, J.CLAVES.cuerpo, sesion.alias, cuerpo); }
   function guardarPlan() { if (sesion) J.guardarDe(almacen, J.CLAVES.plan, sesion.alias, { plan: plan, dia: planDia, hoy: hoyServidor }); }
 
   function cargarDelEquipo() {
@@ -74,6 +80,9 @@
     plan = p && p.plan ? p.plan : null; planDia = p ? p.dia : null; hoyServidor = p ? p.hoy : null;
     var t = J.leerDe(almacen, J.CLAVES.trabajo, sesion.alias);
     trabajo = t && typeof t === 'object' && 'seleccion' in t ? t : J.trabajoNuevo();
+    var c = J.leerDe(almacen, J.CLAVES.cuerpo, sesion.alias);
+    cuerpo = c && typeof c === 'object' ? c : { resp: null, enviada: false };
+    cuerpoSel = {}; cuerpoSaltada = false;
   }
 
   // Los bloques terminados se vuelven registros: se validan igual que siempre, se guardan en la cola de este equipo (con o sin red)
@@ -83,7 +92,21 @@
     var hoy = N.bogota(ahoraSrv()).dia;
     lista.forEach(function (r) {
       r.id_cliente = N.nuevoIdCliente(aleatorio);
+      // La respuesta de cuerpo entero (si hay una sin enviar) viaja en la nota de este registro. Nunca impide que el registro salga.
+      var llevaCE = false;
+      try {
+        if (cuerpo.resp && !cuerpo.enviada) {
+          var conCE = J.conCuerpoEntero(r.nota, cuerpo.resp);
+          if (conCE && conCE !== r.nota) { r.nota = conCE; llevaCE = true; }
+        }
+      } catch (e) { llevaCE = false; }
       var v = N.validarRegistro(r, hoy);
+      if (!v.ok && v.motivo === 'nota' && llevaCE) {
+        var sinCE = J.sinCuerpoEntero(r.nota);
+        if (sinCE) r.nota = sinCE; else delete r.nota;
+        llevaCE = false;
+        v = N.validarRegistro(r, hoy);
+      }
       // La encuesta de licuado nunca impide que el registro salga: si la nota es lo que falla, se manda sin la encuesta.
       if (!v.ok && v.motivo === 'nota') {
         var sinEnc = J.sinNotaDeEncuesta(r.nota);
@@ -99,6 +122,7 @@
         return;
       }
       N.agregarHistorial(almacen, r, 'pendiente');
+      if (llevaCE) { cuerpo.enviada = true; guardarCuerpo(); }
     });
     intentarEnvio(true);
   }
@@ -118,7 +142,7 @@
     $('version-listas').textContent = listas && listas.semana ? ' Listas de la semana ' + listas.semana + '.' : '';
     dibujarRed();
     dibujarPendientes();
-    if (conSesion) { dibujarJornada(); dibujarPlan(); dibujarTrabajo(); dibujarRechazados(); dibujarHoy(); }
+    if (conSesion) { dibujarJornada(); dibujarPlan(); dibujarTrabajo(); dibujarRechazados(); dibujarHoy(); dibujarCuerpoEntero(); }
   }
 
   function dibujarRed() {
@@ -467,6 +491,31 @@
   }
   function cerrarPanel() { panelModo = null; mostrar('panel-seleccion', false); }
 
+  // Qué parte del fondo (versión 3): solo se ve con el paso Fondo escogido. Siempre hay una escogida (por omisión «Varias»); no bloquea nada.
+  function dibujarSubtareas() {
+    var s = trabajo.seleccion;
+    var ver = !!(s && s.paso === 'fondo');
+    mostrar('bloque-subtarea', ver);
+    var cont = $('subtareas');
+    limpiarHijos(cont);
+    if (!ver) return;
+    var activa = J.subtareaDe(s);
+    N.SUBTAREAS_FONDO.forEach(function (k) {
+      var es = activa === k;
+      var b = nodo('button', 'paso' + (es ? ' activo' : ''), N.ETIQUETAS_SUBTAREA[k]);
+      b.type = 'button';
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', es ? 'true' : 'false');
+      b.setAttribute('data-subtarea', k);
+      b.addEventListener('click', function () {
+        trabajo = J.ponerSubtarea(trabajo, k);
+        guardarTrabajo();
+        dibujarTrabajo();
+      });
+      cont.appendChild(b);
+    });
+  }
+
   function escogerPaso(p) {
     var colegio = panelModo === 'paso' && trabajo.seleccion ? trabajo.seleccion.colegio : $('colegio').value;
     var grupo = panelModo === 'paso' && trabajo.seleccion ? trabajo.seleccion.grupo : grupoElegido();
@@ -480,13 +529,13 @@
     mostrar('grupo-otro', $('grupo').value === OTRO_GRUPO);
     if ($('grupo').value === OTRO_GRUPO) { $('grupo-otro').focus(); return; }
     if (panelModo === 'grupo' && trabajo.seleccion && $('colegio').value && grupoElegido()) {
-      aplicarSeleccion({ colegio: $('colegio').value, grupo: grupoElegido(), paso: trabajo.seleccion.paso });
+      aplicarSeleccion({ colegio: $('colegio').value, grupo: grupoElegido(), paso: trabajo.seleccion.paso, subtarea: trabajo.seleccion.subtarea });
     }
   });
   // Con «Otro grado» y solo cambiando de grado, lo escrito se aplica al salir de la casilla o con Entrar.
   $('grupo-otro').addEventListener('change', function () {
     if (panelModo === 'grupo' && trabajo.seleccion && $('colegio').value && grupoElegido()) {
-      aplicarSeleccion({ colegio: $('colegio').value, grupo: grupoElegido(), paso: trabajo.seleccion.paso });
+      aplicarSeleccion({ colegio: $('colegio').value, grupo: grupoElegido(), paso: trabajo.seleccion.paso, subtarea: trabajo.seleccion.subtarea });
     } else if (!grupoElegido()) aviso('jornada-error', 'Escribe el grado con letras, números, espacios, puntos o guiones (máximo 30).');
     else aviso('jornada-error', '');
   });
@@ -571,7 +620,7 @@
       var c = ((listas && listas.colegios) || []).filter(function (x) { return x.codigo === cod; })[0];
       return c && c.nombre ? c.nombre : cod;
     };
-    $('trabajo-seleccion').textContent = s ? ponerNombre(s.colegio) + ' · ' + s.grupo + ' · ' + (N.ETIQUETAS_PASO[s.paso] || s.paso) : 'Escoge qué vas a trabajar: colegio, grado y paso.';
+    $('trabajo-seleccion').textContent = s ? ponerNombre(s.colegio) + ' · ' + s.grupo + ' · ' + (N.ETIQUETAS_PASO[s.paso] || s.paso) + (s.paso === 'fondo' ? ' · ' + N.ETIQUETAS_SUBTAREA[J.subtareaDe(s)] : '') : 'Escoge qué vas a trabajar: colegio, grado y paso.';
     var v = vista();
     var puede = v.estado === 'corriendo' && !v.vencida;
     $('siguiente-foto').disabled = !puede;
@@ -591,6 +640,7 @@
     $('foto-ayuda').textContent = ayuda;
     $('cambiar-grupo').disabled = false;
     $('cambiar-paso').disabled = false;
+    dibujarSubtareas();
     poblarMotivos();
     dibujarEncuesta();
   }
@@ -649,6 +699,80 @@
   function descartarEncuesta() {
     try { trabajo.encuesta = null; guardarTrabajo(); mostrar('encuesta-licuado', false); mostrar('enc-gracias', false); } catch (e) { /* la encuesta no es lo importante */ }
   }
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // Tres preguntas de cuerpo entero: solo a quien el plan las marca (Manuela), una vez hasta que las conteste.
+  // Opciones de un toque, sin texto libre. «Ahora no» las esconde hasta la próxima vez que se abra la página y no bloquea nada.
+  // ---------------------------------------------------------------------------------------------------------------
+  function dibujarCuerpoEntero() {
+    try {
+      var ver = !!sesion && J.debeOfrecerCE(plan, cuerpo, cuerpoSaltada);
+      mostrar('encuesta-cuerpo-entero', ver);
+      mostrar('ce-gracias', !!sesion && !!cuerpo.resp && !cuerpo.enviada && J.debeOfrecerCE(plan, null, false) && cuerpoGracias);
+      if (!ver) return;
+      var cont = $('ce-preguntas');
+      limpiarHijos(cont);
+      J.PREGUNTAS_CE.forEach(function (q, i) {
+        cont.appendChild(nodo('p', 'enc-pregunta', (i + 1) + '. ' + q.texto));
+        var fila = nodo('div', 'enc-rejilla ce-opciones');
+        fila.setAttribute('role', 'group');
+        q.opciones.forEach(function (o) {
+          var puesta = cuerpoSel[q.id] === o.cod;
+          var b = nodo('button', 'paso' + (puesta ? ' activo' : ''), o.texto);
+          b.type = 'button';
+          b.setAttribute('aria-pressed', puesta ? 'true' : 'false');
+          b.setAttribute('data-ce', q.id + ':' + o.cod);
+          b.addEventListener('click', function () { cuerpoSel = J.ceMarcar(cuerpoSel, q.id, o.cod); dibujarCuerpoEntero(); });
+          fila.appendChild(b);
+        });
+        cont.appendChild(fila);
+        // Detalle corto y OPCIONAL: solo si la opción marcada lo pide. Nunca condiciona «Listo».
+        var marcada = q.opciones.filter(function (o) { return o.cod === cuerpoSel[q.id]; })[0];
+        if (marcada && marcada.campo) {
+          var caja = nodo('div', 'ce-detalle');
+          var et = nodo('label', null, marcada.campo + ' (opcional)');
+          et.setAttribute('for', 'ce-texto-' + q.id);
+          var campo = document.createElement('input');
+          campo.type = 'text';
+          campo.id = 'ce-texto-' + q.id;
+          campo.setAttribute('data-ce-texto', q.id);
+          campo.setAttribute('autocomplete', 'off');
+          campo.setAttribute('spellcheck', 'false');
+          campo.maxLength = J.ceRestante(cuerpoSel, q.id);
+          campo.value = cuerpoSel.t && cuerpoSel.t[q.id] ? cuerpoSel.t[q.id] : '';
+          campo.addEventListener('input', function () {
+            cuerpoSel = J.ceTexto(cuerpoSel, q.id, campo.value);
+            ajustarDetalleCE();
+          });
+          caja.appendChild(et); caja.appendChild(campo);
+          cont.appendChild(caja);
+        }
+      });
+      ajustarDetalleCE();
+      $('ce-listo').disabled = !J.ceCompleta(cuerpoSel);
+    } catch (e) { try { mostrar('encuesta-cuerpo-entero', false); } catch (e2) { /* la encuesta no es lo importante */ } }
+  }
+  // Cuánto detalle queda entre todos los campos: el tope se ve en pantalla y cada casilla ya no deja escribir de más.
+  function ajustarDetalleCE() {
+    var campos = document.querySelectorAll('#ce-preguntas [data-ce-texto]');
+    mostrar('ce-restante', campos.length > 0);
+    $('ce-restante').textContent = 'Detalle opcional, sin nombres de estudiantes ni de personas. Entre todos los campos caben ' + J.TEXTO_CE_MAX + ' caracteres; te quedan ' + (J.TEXTO_CE_MAX - J.ceUsado(cuerpoSel)) + '. No se escriben llaves { }.';
+    Array.prototype.forEach.call(campos, function (c) { c.maxLength = J.ceRestante(cuerpoSel, c.getAttribute('data-ce-texto')); });
+  }
+  var cuerpoGracias = false;
+
+  $('ce-listo').addEventListener('click', function () {
+    try {
+      if (!J.ceCompleta(cuerpoSel)) return;
+      cuerpo = { resp: cuerpoSel, enviada: false };
+      guardarCuerpo();
+      cuerpoGracias = true;
+      cuerpoSel = {};
+      dibujarCuerpoEntero();
+    } catch (e) { /* si algo falla aquí, el trabajo sigue como siempre */ }
+  });
+
+  $('ce-ahora-no').addEventListener('click', function () { cuerpoSaltada = true; dibujarCuerpoEntero(); });
 
   // ---------------------------------------------------------------------------------------------------------------
   // Los relojes (se refrescan solos; el servidor manda cada cinco minutos y al volver a la pestaña)

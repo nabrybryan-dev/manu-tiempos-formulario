@@ -13,6 +13,18 @@
     encuadre: 'Encuadre', fondo: 'Fondo', motas: 'Motas', piel: 'Piel', granos: 'Granos', licuado: 'Licuado',
     decoracion: 'Decoración', revision: 'Revisión', otra_actividad: 'Otra actividad (no es edición)'
   };
+  // Versión 3: qué parte del fondo fue (opcional; solo en el paso fondo). «varias» es lo que queda si la persona no escoge.
+  var SUBTAREAS_FONDO = ['relleno_arriba', 'relleno_lados', 'arrugas_fondo', 'tripodes_cables_piso', 'decoracion', 'limpieza_general', 'varias'];
+  var SUBTAREA_POR_OMISION = 'varias';
+  var ETIQUETAS_SUBTAREA = {
+    relleno_arriba: 'Relleno de arriba',
+    relleno_lados: 'Relleno de los lados',
+    arrugas_fondo: 'Arrugas del fondo',
+    tripodes_cables_piso: 'Trípodes, cables y piso',
+    decoracion: 'Decoración',
+    limpieza_general: 'Limpieza en general',
+    varias: 'Varias cosas / no sé'
+  };
   var MOTIVOS_MANUAL = ['bloqueada_por_patron', 'dudosa_revision', 'paso_no_automatizado', 'otro'];
   var ETIQUETAS_MOTIVO = {
     bloqueada_por_patron: 'La IA la bloqueó por un patrón (no sé cuál)',
@@ -36,6 +48,8 @@
   };
   var CAMPOS_REGISTRO = ['id_cliente', 'dia', 'inicio', 'fin', 'minutos', 'colegio', 'grupo', 'paso',
     'fotos_terminadas', 'patron', 'motivo_manual', 'nota'];
+  // Con la versión 3 un registro puede traer además «subtarea». CAMPOS_REGISTRO queda como en esquema.sql (la lista de la versión 1).
+  var CAMPOS_REGISTRO_V3 = CAMPOS_REGISTRO.concat(['subtarea']);
   var RE = {};
   Object.keys(FORMATOS).forEach(function (k) { RE[k] = new RegExp(FORMATOS[k]); });
 
@@ -64,7 +78,9 @@
     patron: 'La llave del patrón solo admite letras, números, punto, guion, guion bajo y signo más (máximo 80).',
     motivo_manual: 'El motivo no está en la lista.',
     patron_exige_motivo: 'Si hay un patrón, el motivo tiene que ser «bloqueada por patrón».',
-    nota: 'La nota pasa de 120 caracteres.'
+    nota: 'La nota pasa de 120 caracteres.',
+    subtarea: 'La parte del fondo no está en la lista.',
+    subtarea_solo_fondo: 'La parte del fondo solo se anota en el paso Fondo.'
   };
 
   function mensajeDe(codigo) {
@@ -112,7 +128,7 @@
     function no(m) { return { ok: false, motivo: m }; }
     if (!esObjeto(x)) return no('no_es_objeto');
     var claves = Object.keys(x);
-    for (var i = 0; i < claves.length; i++) if (!contiene(CAMPOS_REGISTRO, claves[i])) return no('campo_no_permitido');
+    for (var i = 0; i < claves.length; i++) if (!contiene(CAMPOS_REGISTRO_V3, claves[i])) return no('campo_no_permitido');
 
     if (typeof x.id_cliente !== 'string' || !RE.idCliente.test(x.id_cliente)) return no('id_cliente');
     if (typeof x.dia !== 'string' || !fechaReal(x.dia)) return no('dia');
@@ -133,6 +149,12 @@
 
     if (typeof x.paso !== 'string' || !contiene(PASOS, x.paso)) return no('paso');
     var esOtra = x.paso === 'otra_actividad';
+
+    // Versión 3: la subtarea es opcional y solo existe dentro del paso fondo (mismo lugar y orden que en motivo_invalido()).
+    if (!esNulo(x.subtarea)) {
+      if (typeof x.subtarea !== 'string' || !contiene(SUBTAREAS_FONDO, x.subtarea)) return no('subtarea');
+      if (x.paso !== 'fondo') return no('subtarea_solo_fondo');
+    }
 
     var fotos = 0;
     if (!esNulo(x.fotos_terminadas)) {
@@ -375,6 +397,8 @@
   }
 
   return {
+    SUBTAREAS_FONDO: SUBTAREAS_FONDO, SUBTAREA_POR_OMISION: SUBTAREA_POR_OMISION, ETIQUETAS_SUBTAREA: ETIQUETAS_SUBTAREA,
+    CAMPOS_REGISTRO_V3: CAMPOS_REGISTRO_V3,
     PASOS: PASOS, ETIQUETAS_PASO: ETIQUETAS_PASO, MOTIVOS_MANUAL: MOTIVOS_MANUAL, ETIQUETAS_MOTIVO: ETIQUETAS_MOTIVO,
     LIMITES: LIMITES, FORMATOS: FORMATOS, MENSAJES: MENSAJES, CAMPOS_REGISTRO: CAMPOS_REGISTRO, CLAVES: CLAVES,
     mensajeDe: mensajeDe, bogota: bogota, bogotaIso: bogotaIso, validarRegistro: validarRegistro,
