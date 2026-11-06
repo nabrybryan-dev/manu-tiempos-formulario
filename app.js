@@ -142,8 +142,32 @@
     $('version-listas').textContent = listas && listas.semana ? ' Listas de la semana ' + listas.semana + '.' : '';
     dibujarRed();
     dibujarPendientes();
+    dibujarAvisoNuevo();
     if (conSesion) { dibujarJornada(); dibujarPlan(); dibujarTrabajo(); dibujarRechazados(); dibujarHoy(); dibujarCuerpoEntero(); }
   }
+
+  // El aviso nuevo (v3): una tarjeta, una sola vez, para quien tiene una sesión anterior a la v3. El texto es el mismo de la entrada
+  // (se copia de ahí para que no haya dos versiones). No bloquea nada de la jornada.
+  function necesitaAviso() { return !!(sesion && sesion.alias && sesion.codigo && !sesion.avisoV3); }
+  function dibujarAvisoNuevo() {
+    var ver = necesitaAviso();
+    mostrar('tarjeta-aviso', ver);
+    var caja = $('aviso-copia');
+    if (ver && !caja.firstChild) {
+      var fuente = $('pantalla-entrada').querySelector('.aviso');
+      if (fuente) caja.appendChild(fuente.cloneNode(true));
+    }
+  }
+  $('aviso-aceptar').addEventListener('click', function () {
+    if (!necesitaAviso()) return;
+    sesion.avisoV3 = N.bogotaIso(ahoraLocal());
+    if (!N.escribirJson(almacen, N.CLAVES.sesion, sesion) && almacen.persistente) aviso('jornada-error', 'No se pudo guardar en este equipo. Revisa el espacio del navegador.');
+    mensajeEnvio = '';
+    dibujar();
+    sincronizar(false);   // el servidor anota la aceptación con esta llamada o con el primer envío
+    pausaHasta = 0;
+    intentarEnvio(true);
+  });
 
   function dibujarRed() {
     var el = $('red');
@@ -185,7 +209,8 @@
     if (err) { aviso('error-entrada', err); return; }
     aviso('error-entrada', '');
     var viejo = sesion && sesion.alias === alias ? sesion : null;
-    sesion = { alias: alias, codigo: codigo, avisoAceptadoEn: viejo ? viejo.avisoAceptadoEn : N.bogotaIso(ahoraLocal()), avisoConfirmado: viejo ? viejo.avisoConfirmado : false };
+    sesion = { alias: alias, codigo: codigo, avisoAceptadoEn: viejo ? viejo.avisoAceptadoEn : N.bogotaIso(ahoraLocal()), avisoConfirmado: viejo ? viejo.avisoConfirmado : false,
+      avisoV3: viejo && viejo.avisoV3 ? viejo.avisoV3 : N.bogotaIso(ahoraLocal()) };   // marcó «acepto» viendo el aviso de la entrada
     if (!N.escribirJson(almacen, N.CLAVES.sesion, sesion) && almacen.persistente) aviso('error-entrada', 'No se pudo guardar en este equipo. Revisa el espacio del navegador.');
     ultimo.alias = alias;
     N.escribirJson(almacen, N.CLAVES.ultimo, ultimo);
@@ -807,6 +832,7 @@
     if (enviando || !sesion) return;
     if (!manual && ahoraLocal() < pausaHasta) return;
     if (cola.cantidad(sesion.alias) === 0) { mensajeEnvio = ''; dibujarPendientes(); return; }
+    if (necesitaAviso()) { mensajeEnvio = N.MENSAJE_AVISO_NUEVO; dibujarPendientes(); return; }
     if (!manual && navigator.onLine === false) {
       mensajeEnvio = 'Sin conexión por ahora.';
       dibujarPendientes();

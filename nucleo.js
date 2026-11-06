@@ -54,6 +54,19 @@
   Object.keys(FORMATOS).forEach(function (k) { RE[k] = new RegExp(FORMATOS[k]); });
 
   // Los mismos textos que da el servidor (MENSAJES en validar.ts).
+  // Versión del aviso de entrada que la persona tiene que haber VISTO y aceptado. Es la misma que AVISO_VERSION de reglas.ts y c_aviso de
+  // migracion-v4-aviso.sql (pruebas/aviso.test.mjs las compara). Al cambiar el texto del aviso se sube aquí, allá y en el SQL.
+  var AVISO_VERSION = 'v3';
+  // Solo del formulario (no es un error del servidor, por eso no está en MENSAJES).
+  var MENSAJE_AVISO_NUEVO = 'Tus registros esperan en este equipo: acepta el aviso nuevo (arriba) y salen solos.';
+
+  // Lo que el envío dice del aviso. Solo afirma «acepta» si la persona lo aceptó viéndolo en este equipo (sesion.avisoV3 trae la
+  // fecha de ese toque); antes el formulario mandaba acepta_aviso: true en cada envío sin que nadie hubiera visto nada.
+  function avisoDe(sesion) {
+    if (sesion && sesion.avisoV3) return { acepta_aviso: true, aviso_version: AVISO_VERSION };
+    return { acepta_aviso: false };
+  }
+
   var MENSAJES = {
     credenciales: 'El alias o el código no coinciden. Revísalos con Manuela.',
     pausa: 'La entrada quedó en pausa 15 minutos porque el código falló varias veces seguidas.',
@@ -349,15 +362,17 @@
     function fin(extra) { var o = {}; for (var k in tot) o[k] = tot[k]; for (var j in extra) o[j] = extra[j]; return o; }
     if (!ctx.urlRegistrar) return Promise.resolve(fin({ estado: 'sin_direccion', mensaje: 'Falta la dirección de envío (config.js). Los registros quedan guardados en este equipo.' }));
     if (!ctx.sesion || !ctx.sesion.alias || !ctx.sesion.codigo) return Promise.resolve(fin({ estado: 'sin_sesion' }));
+    // Sin el aviso aceptado a la vista no sale nada: los registros se quedan en la cola de este equipo, intactos.
+    if (!ctx.sesion.avisoV3) return Promise.resolve(fin({ estado: 'aviso', mensaje: MENSAJE_AVISO_NUEVO }));
 
     function vuelta(n) {
       var items = ctx.cola.pendientes(ctx.sesion.alias).slice(0, LIMITES.loteMax);
       if (!items.length) return Promise.resolve(fin({ estado: (tot.aceptados + tot.duplicados + tot.rechazados) > 0 ? 'enviado' : 'nada' }));
       if (n >= 40) return Promise.resolve(fin({ estado: 'servidor', mensaje: MENSAJES.servidor }));
-      var cuerpo = JSON.stringify({
-        alias: ctx.sesion.alias, codigo: ctx.sesion.codigo, acepta_aviso: true,
-        registros: items.map(function (i) { return i.reg; })
-      });
+      var cuerpoObj = { alias: ctx.sesion.alias, codigo: ctx.sesion.codigo, registros: items.map(function (i) { return i.reg; }) };
+      var av = avisoDe(ctx.sesion);
+      for (var kav in av) cuerpoObj[kav] = av[kav];
+      var cuerpo = JSON.stringify(cuerpoObj);
       return Promise.resolve()
         .then(function () {
           return ctx.fetch(ctx.urlRegistrar, { method: 'POST', headers: { 'content-type': 'text/plain;charset=UTF-8' }, body: cuerpo, cache: 'no-store' });
@@ -387,7 +402,7 @@
           tot.aceptados += (j.aceptados || []).length;
           tot.duplicados += (j.duplicados || []).length;
           tot.rechazados += malos.length;
-          if (j.aviso_aceptado_en) tot.avisoConfirmado = true;
+          if (j.aviso_version === AVISO_VERSION) tot.avisoConfirmado = true;
           if (okQuitar === false || okRech === false) return fin({ estado: 'almacen', mensaje: 'No se pudo actualizar la lista de pendientes en este equipo.' });
           return vuelta(n + 1);
         })
@@ -400,6 +415,7 @@
     SUBTAREAS_FONDO: SUBTAREAS_FONDO, SUBTAREA_POR_OMISION: SUBTAREA_POR_OMISION, ETIQUETAS_SUBTAREA: ETIQUETAS_SUBTAREA,
     CAMPOS_REGISTRO_V3: CAMPOS_REGISTRO_V3,
     PASOS: PASOS, ETIQUETAS_PASO: ETIQUETAS_PASO, MOTIVOS_MANUAL: MOTIVOS_MANUAL, ETIQUETAS_MOTIVO: ETIQUETAS_MOTIVO,
+    AVISO_VERSION: AVISO_VERSION, MENSAJE_AVISO_NUEVO: MENSAJE_AVISO_NUEVO, avisoDe: avisoDe,
     LIMITES: LIMITES, FORMATOS: FORMATOS, MENSAJES: MENSAJES, CAMPOS_REGISTRO: CAMPOS_REGISTRO, CLAVES: CLAVES,
     mensajeDe: mensajeDe, bogota: bogota, bogotaIso: bogotaIso, validarRegistro: validarRegistro,
     nuevoIdCliente: nuevoIdCliente, aleatorioDelNavegador: aleatorioDelNavegador,

@@ -48,6 +48,14 @@
     <section id="pantalla-trabajo" hidden>
 
       <!-- 1. La jornada: la hora la pone el servidor y no se puede parar -->
+      <!-- Aviso nuevo (v3): lo ve una sola vez quien entró con el aviso anterior. No corta la jornada; solo los registros esperan en la cola. -->
+      <section id="tarjeta-aviso" class="tarjeta" aria-labelledby="t-aviso" hidden>
+        <h2 id="t-aviso">El aviso cambió: léelo y acéptalo</h2>
+        <p class="ayuda">Tu jornada y tu foto en curso siguen. Los registros nuevos se quedan guardados en este equipo y salen apenas aceptes.</p>
+        <div id="aviso-copia"></div>
+        <button id="aviso-aceptar" type="button" class="grande principal">Leí el aviso y lo acepto</button>
+      </section>
+
       <section id="tarjeta-jornada" class="tarjeta jornada" aria-labelledby="t-jornada">
         <h2 id="t-jornada">Tu jornada</h2>
 

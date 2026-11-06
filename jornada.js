@@ -539,7 +539,9 @@
     if (!contiene(ACCIONES, accion)) return Promise.resolve({ tipo: 'invalida', mensaje: MENSAJES.accion_invalida });
     if (!ctx.urlRegistrar) return Promise.resolve({ tipo: 'sin_direccion', mensaje: 'Falta la dirección de envío (config.js).' });
     if (!ctx.sesion || !ctx.sesion.alias || !ctx.sesion.codigo) return Promise.resolve({ tipo: 'sin_sesion' });
-    var cuerpo = { alias: ctx.sesion.alias, codigo: ctx.sesion.codigo, acepta_aviso: true, accion: accion };
+    var cuerpo = { alias: ctx.sesion.alias, codigo: ctx.sesion.codigo, accion: accion };
+    var av = N.avisoDe(ctx.sesion);   // sin aviso aceptado a la vista, acepta_aviso: false (la jornada igual corre si ya aceptó una versión anterior)
+    for (var kav in av) cuerpo[kav] = av[kav];
     if (datos) cuerpo.datos = datos;
     var t0 = ctx.ahora();
     return Promise.resolve()
